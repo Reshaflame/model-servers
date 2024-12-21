@@ -1,0 +1,4 @@
+pandas
+numpy
+scikit-learn
+tensorflow  # or torch, based on your needs
