@@ -20,6 +20,9 @@ model-servers/
 │   ├── decision/       # Decision methods for anomaly detection
 │   │   ├── majority_voting.py
 │   │   ├── advanced_decision.py
+│   ├── utils/          # Data preprocessing scripts
+│   │   ├── gpu_utils.py
+│   │   ├── visualizations.py
 │   ├── main.py         # Main script to load data, run models, and make decisions
 │   ├── test.py         # file for testing - outputting data between stages of work
 ├── README.md           # Documentation
