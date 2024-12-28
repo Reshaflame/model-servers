@@ -1,55 +1,49 @@
 from sklearn.ensemble import IsolationForest
 import pandas as pd
 
-# Load preprocessed datasets
-auth_data = pd.read_csv('data/sampled_data/auth_sample.csv')
-flows_data = pd.read_csv('data/sampled_data/flows_sample.csv')
+# Load preprocessed dataset
+auth_data = pd.read_csv('data/sampled_data/auth_sample.csv', low_memory=False)
+print("Loaded auth data shape:", auth_data.shape)
 
-# Downsample to reduce size
-auth_data = auth_data.sample(frac=0.01, random_state=42)
-flows_data = flows_data.sample(frac=0.01, random_state=42)
-print("Auth data shape after downsampling:", auth_data.shape)
-print("Flows data shape after downsampling:", flows_data.shape)
+# Dynamically identify numerical and one-hot encoded columns
+categorical_columns = [
+    col for col in auth_data.columns if col.startswith(('auth_type_', 'logon_type_', 'auth_orientation_', 'success_'))
+]
 
-# Ensure 'time' is datetime and drop invalid rows
-auth_data['time'] = pd.to_datetime(auth_data['time'], errors='coerce')
-flows_data['time'] = pd.to_datetime(flows_data['time'], errors='coerce')
-auth_data = auth_data.dropna(subset=['time'])
-flows_data = flows_data.dropna(subset=['time'])
+# Select only the columns available in the dataset
+selected_features = categorical_columns
+print("Selected feature columns:", selected_features)
 
-# Sort by 'time' for merge_asof
-auth_data = auth_data.sort_values('time')
-flows_data = flows_data.sort_values('time')
+# Handle missing values
+# Option 1: Drop columns with excessive NaNs
+# threshold = 0.5 * len(auth_data)
+# selected_features = [col for col in selected_features if auth_data[col].isna().sum() < threshold]
+# print("Selected features after dropping high-NaN columns:", selected_features)
 
-# Merge datasets with a 1-second tolerance
-merged_data = pd.merge_asof(
-    auth_data,
-    flows_data,
-    on='time',
-    direction='nearest',
-    tolerance=pd.Timedelta('1s')
-)
-print("Merged data shape:", merged_data.shape)
+# Option 2: Fill missing values (uncomment to use)
+auth_data[selected_features] = auth_data[selected_features].fillna(0)
 
-# Downsample merged data
-merged_data = merged_data.sample(frac=0.01, random_state=42)
-print("Downsampled merged data shape:", merged_data.shape)
-
-# Select features for Isolation Forest
-features = merged_data[['auth_type', 'logon_type', 'auth_orientation', 'success', 'duration', 'packets', 'bytes']]
-print("Selected features columns:", features.columns)
-print("Features shape:", features.shape)
+# Drop rows with remaining missing values
+features = auth_data[selected_features].dropna()
+print("Features shape after handling missing values:", features.shape)
 
 # Initialize and train Isolation Forest
-iso_forest = IsolationForest(contamination=0.01, random_state=42)
+iso_forest = IsolationForest(contamination=0.05, random_state=42)
 iso_forest.fit(features)
 
 # Predict anomalies
 predictions = iso_forest.predict(features)
 
-# Add predictions to the merged dataset
-merged_data['anomaly'] = predictions  # Add anomaly column
+# Add predictions to the dataset
+auth_data = auth_data.loc[features.index]  # Align with features after handling missing values
+auth_data['anomaly'] = predictions  # -1 = anomaly, 1 = normal
+print("Anomalies added to the dataset.")
 
 # Save results
-merged_data.to_csv('data/sampled_data/merged_with_anomalies.csv', index=False)
-print("Results saved to data/sampled_data/merged_with_anomalies.csv")
+output_path = 'data/sampled_data/auth_with_anomalies.csv'
+auth_data.to_csv(output_path, index=False)
+print(f"Results saved to {output_path}")
+
+# Debugging: Count anomalies
+anomaly_count = (auth_data['anomaly'] == -1).sum()
+print(f"Number of anomalies detected: {anomaly_count}")
