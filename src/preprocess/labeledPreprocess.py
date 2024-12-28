@@ -1,64 +1,101 @@
 import pandas as pd
 import gzip
 import os
+from concurrent.futures import ProcessPoolExecutor
 
-# Function to extract and read gzip files in chunks
-def read_gz_file(file_path, column_names, chunk_size=10**6, sample_fraction=0.01):
-    extracted_data = []
-    with gzip.open(file_path, 'rt') as file:
-        reader = pd.read_csv(file, names=column_names, chunksize=chunk_size, sep=' ')
-        for chunk in reader:
-            sampled_chunk = chunk.sample(frac=sample_fraction, random_state=42)
-            extracted_data.append(sampled_chunk)
-    return pd.concat(extracted_data, ignore_index=True)
+# Add the project root directory to the Python path
+import sys
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-# Column definitions for LANL dataset
-redteam_columns = ['time', 'src_user', 'dst_user', 'src_comp', 'dst_comp', 'action']
+def encode_categorical_columns(data, categorical_columns):
+    """
+    Encode categorical columns by turning categories into numerical IDs or one-hot encoding.
+    """
+    for col in categorical_columns:
+        data[col] = pd.Categorical(data[col]).codes  # Assign numerical IDs
+    return data
 
-# File paths
-file_paths = {
-    'redteam': 'data/redteam.txt.gz',
-    'auth': 'data/sampled_data/auth_sample.csv',
-    'proc': 'data/sampled_data/proc_sample.csv',
-    'flows': 'data/sampled_data/flows_sample.csv',
-    'dns': 'data/sampled_data/dns_sample.csv'
-}
+def process_chunk(chunk, redteam_events):
+    """
+    Process a single chunk: sample, label, and encode.
+    """
+    # Sampling
+    sampled_chunk = chunk.sample(frac=0.01, random_state=42)
 
-# Load redteam data for labels
-redteam_data = read_gz_file(file_paths['redteam'], redteam_columns, sample_fraction=1.0)
+    # Labeling
+    sampled_chunk['label'] = sampled_chunk.apply(
+        lambda row: -1 if (row['time'], row['src_user'], row['src_comp'], row['dst_comp']) in redteam_events else 1,
+        axis=1
+    )
 
-# Load sampled data
-auth_data = pd.read_csv(file_paths['auth'])
-proc_data = pd.read_csv(file_paths['proc'])
-flows_data = pd.read_csv(file_paths['flows'])
-dns_data = pd.read_csv(file_paths['dns'])
+    # Encode categorical columns into numerical values
+    categorical_columns = ['src_user', 'dst_user', 'src_comp', 'dst_comp', 'auth_type', 'logon_type', 'auth_orientation', 'success']
+    sampled_chunk = encode_categorical_columns(sampled_chunk, categorical_columns)
 
-# Merge datasets on time or other relevant keys for labeling
-# Assuming 'time' is the primary key to merge on
-auth_labeled = auth_data.merge(redteam_data, on=['time'], how='left', indicator=True)
-auth_labeled['label'] = (auth_labeled['_merge'] == 'both').astype(int)
-auth_labeled = auth_labeled.drop(columns=['_merge'])
+    # Fill NaN values
+    sampled_chunk.fillna(0, inplace=True)
 
-# Repeat similar merging for other datasets
-proc_labeled = proc_data.merge(redteam_data, on=['time'], how='left', indicator=True)
-proc_labeled['label'] = (proc_labeled['_merge'] == 'both').astype(int)
-proc_labeled = proc_labeled.drop(columns=['_merge'])
+    return sampled_chunk
 
-flows_labeled = flows_data.merge(redteam_data, on=['time'], how='left', indicator=True)
-flows_labeled['label'] = (flows_labeled['_merge'] == 'both').astype(int)
-flows_labeled = flows_labeled.drop(columns=['_merge'])
+def preprocess_labeled_data_with_matching_parallel(auth_file, redteam_file, chunk_size=10**6, output_file='labeled_auth_sample.csv'):
+    # Define column names
+    auth_columns = [
+        "time", "src_user", "dst_user", "src_comp", "dst_comp",
+        "auth_type", "logon_type", "auth_orientation", "success"
+    ]
+    redteam_columns = ["time", "user", "src_comp", "dst_comp"]
+    output_dir = 'data/labeled_data'
+    os.makedirs(output_dir, exist_ok=True)
+    output_path = os.path.join(output_dir, output_file)
 
-dns_labeled = dns_data.merge(redteam_data, on=['time'], how='left', indicator=True)
-dns_labeled['label'] = (dns_labeled['_merge'] == 'both').astype(int)
-dns_labeled = dns_labeled.drop(columns=['_merge'])
+    # Load redteam data
+    print("Loading redteam data...")
+    with gzip.open(redteam_file, 'rt') as redteam:
+        redteam_data = pd.read_csv(redteam, names=redteam_columns, sep=',')
+    redteam_events = set(zip(redteam_data['time'], redteam_data['user'], redteam_data['src_comp'], redteam_data['dst_comp']))
 
-# Save labeled data
-output_dir = 'data/labeled_data'
-os.makedirs(output_dir, exist_ok=True)
+    total_data = []
+    matches_found = 0
 
-auth_labeled.to_csv(f'{output_dir}/auth_labeled.csv', index=False)
-proc_labeled.to_csv(f'{output_dir}/proc_labeled.csv', index=False)
-flows_labeled.to_csv(f'{output_dir}/flows_labeled.csv', index=False)
-dns_labeled.to_csv(f'{output_dir}/dns_labeled.csv', index=False)
+    print("Processing authentication data with parallel sampling and matching...")
+    with gzip.open(auth_file, 'rt') as auth:
+        auth_reader = pd.read_csv(auth, names=auth_columns, sep=',', chunksize=chunk_size)
 
-print("Labeled data saved!")
+        # Process chunks in parallel
+        with ProcessPoolExecutor() as executor:
+            futures = [executor.submit(process_chunk, chunk, redteam_events) for chunk in auth_reader]
+
+            for future in futures:
+                processed_chunk = future.result()
+                total_data.append(processed_chunk)
+
+                # Count matches in this chunk
+                chunk_matches = processed_chunk[processed_chunk['label'] == -1].shape[0]
+                matches_found += chunk_matches
+
+                # Stop sampling more chunks once sufficient matches are found
+                if matches_found >= 5:
+                    print(f"Sufficient matches found ({matches_found}). Stopping further sampling.")
+                    break
+
+    # Combine all processed data
+    if total_data:
+        final_data = pd.concat(total_data, ignore_index=True)
+        print(f"Combined dataset shape: {final_data.shape}")
+
+        # Save the labeled dataset
+        print(f"Saving labeled dataset to {output_path}...")
+        final_data.to_csv(output_path, index=False)
+        print("Labeled dataset saved.")
+    else:
+        print("No data processed.")
+
+if __name__ == "__main__":
+    # Add project root directory to path
+    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+
+    print("Starting labeled preprocessing with parallel sampling and matching...")
+    auth_file_path = 'data/auth.txt.gz'
+    redteam_file_path = 'data/redteam.txt.gz'
+    preprocess_labeled_data_with_matching_parallel(auth_file_path, redteam_file_path, chunk_size=10**6)
+    print("Labeled preprocessing completed.")

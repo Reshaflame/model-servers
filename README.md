@@ -5,6 +5,7 @@ model-servers/
 ├── data/               # Raw and processed datasets
 │   ├── sampled_data/   # Sampled data for testing
 │   ├── labeled_data/   # Labeled data for supervised learning
+│   ├── visualizations/ # visualizations of models after training/running
 ├── models/             # Trained models or model configurations
 ├── notebooks/          # Jupyter notebooks for experimentation
 ├── src/                # Source code
@@ -20,6 +21,7 @@ model-servers/
 │   │   ├── majority_voting.py
 │   │   ├── advanced_decision.py
 │   ├── main.py         # Main script to load data, run models, and make decisions
+│   ├── test.py         # file for testing - outputting data between stages of work
 ├── README.md           # Documentation
 ├── requirements.txt    # Python dependencies
 ├── .gitignore          # Files to exclude from version control
