@@ -1,5 +1,5 @@
 from sklearn.ensemble import IsolationForest
-from utils.metrics import Metrics
+from src.utils.metrics import Metrics
 import pandas as pd
 import numpy as np
 

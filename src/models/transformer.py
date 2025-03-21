@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import os
 from torch.utils.data import DataLoader, TensorDataset, random_split
-from utils.metrics import Metrics
+from src.utils.metrics import Metrics
 import pandas as pd
 import numpy as np
 

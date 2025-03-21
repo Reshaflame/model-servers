@@ -1,6 +1,3 @@
-# src/utils/tarp_metric.py
-
-import numpy as np
 
 class TaPR:
     def __init__(self, delta=0.5):

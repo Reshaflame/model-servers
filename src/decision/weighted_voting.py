@@ -4,7 +4,7 @@ import numpy as np
 import json
 from pathlib import Path
 from skopt import gp_minimize
-from utils.metrics import Metrics
+from src.utils.metrics import Metrics
 
 class WeightedVoting:
     def __init__(self, num_models, weight_file="ensemble_weights.json"):
