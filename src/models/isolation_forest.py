@@ -1,5 +1,9 @@
 from sklearn.ensemble import IsolationForest
+from utils.metrics import Metrics
 import pandas as pd
+import numpy as np
+
+metrics = Metrics()
 
 # Load preprocessed dataset
 auth_data = pd.read_csv('data/sampled_data/auth_sample.csv', low_memory=False)
@@ -33,6 +37,16 @@ iso_forest.fit(features)
 
 # Predict anomalies
 predictions = iso_forest.predict(features)
+
+# Convert predictions from (-1, 1) to (1 = anomaly, 0 = normal)
+y_pred = np.where(predictions == -1, 1, 0)
+
+# Generate dummy y_true (you currently have unlabeled data)
+y_true = np.zeros_like(y_pred)  # Assume normal data as baseline (optional if you have labels)
+
+# Call the metrics
+results = metrics.compute_standard_metrics(y_true, y_pred)
+print("Isolation Forest Metrics:", results)
 
 # Add predictions to the dataset
 auth_data = auth_data.loc[features.index]  # Align with features after handling missing values

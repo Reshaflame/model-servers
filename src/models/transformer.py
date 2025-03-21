@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import os
 from torch.utils.data import DataLoader, TensorDataset, random_split
+from utils.metrics import Metrics
 import pandas as pd
 import numpy as np
 
@@ -118,6 +119,7 @@ def train_transformer(model, train_loader, criterion, optimizer, device, epochs=
 
 def evaluate_transformer(model, test_loader, device):
     model.eval()
+    metrics = Metrics()
     y_true, y_pred = [], []
     with torch.no_grad():
         for batch_features, batch_labels in test_loader:
@@ -127,6 +129,13 @@ def evaluate_transformer(model, test_loader, device):
             y_true.extend(batch_labels.numpy())
 
     y_true, y_pred = torch.tensor(y_true), torch.tensor(y_pred)
+    results = metrics.compute_all(
+        y_true,
+        y_pred,
+        # anomaly_ranges=your_gt_ranges,  # Optional for TaPR if you can pass intervals
+        # pred_ranges=your_predicted_ranges  # Optional
+    )
+    print("Metrics:", results)
     accuracy = (y_true == y_pred).float().mean().item()
     print(f"Evaluation Accuracy: {accuracy:.4f}")
 

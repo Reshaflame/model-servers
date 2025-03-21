@@ -2,7 +2,10 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
+from utils.metrics import Metrics
 from torch.utils.data import DataLoader, TensorDataset, random_split
+
+metrics = Metrics()
 
 # Define the GRU model
 class GRUAnomalyDetector(nn.Module):
@@ -40,11 +43,16 @@ def evaluate_model(model, test_loader, device):
     # Calculate metrics
     y_true = np.array(y_true).flatten()
     y_pred = np.array(y_pred).flatten()
-    accuracy = np.mean(y_true == y_pred)
-    print(f"Evaluation Accuracy: {accuracy:.4f}")
+    results = metrics.compute_all(
+        y_true,
+        y_pred,
+        # anomaly_ranges=your_gt_ranges,  # Optional for TaPR if you can pass intervals
+        # pred_ranges=your_predicted_ranges  # Optional
+    )
+    print("Metrics:", results)
 
     # Optionally, you can add additional metrics like precision, recall, F1-score
-    return accuracy
+    return results
 
 
 # Prepare the dataset

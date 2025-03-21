@@ -2,6 +2,7 @@ import torch
 import os
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset, random_split
+from utils.metrics import Metrics
 import pandas as pd
 import numpy as np
 
@@ -71,6 +72,7 @@ def train_model(model, train_loader, criterion, optimizer, device, epochs=5):
 
 def evaluate_model(model, test_loader, device):
     model.eval()
+    metrics = Metrics()
     y_true, y_pred = [], []
     with torch.no_grad():
         for features, labels in test_loader:
@@ -79,6 +81,13 @@ def evaluate_model(model, test_loader, device):
             predictions = (outputs > 0.5).float()
             y_true.extend(labels.cpu().numpy())
             y_pred.extend(predictions.cpu().numpy())
+    results = metrics.compute_all(
+        y_true,
+        y_pred,
+        # anomaly_ranges=your_gt_ranges,  # Optional for TaPR if you can pass intervals
+        # pred_ranges=your_predicted_ranges  # Optional
+    )
+    print("Metrics:", results)
     accuracy = np.mean(np.array(y_true) == np.array(y_pred))
     print(f"Evaluation Accuracy: {accuracy:.4f}")
 
