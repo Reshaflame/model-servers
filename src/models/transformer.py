@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import os
 from torch.utils.data import DataLoader, TensorDataset, random_split
-from src.utils.metrics import Metrics
+from utils.metrics import Metrics
 import pandas as pd
 import numpy as np
 
@@ -128,7 +128,8 @@ def evaluate_transformer(model, test_loader, device):
             y_pred.extend((torch.sigmoid(outputs) > 0.5).float().numpy())
             y_true.extend(batch_labels.numpy())
 
-    y_true, y_pred = torch.tensor(y_true), torch.tensor(y_pred)
+    y_true = np.concatenate(y_true)
+    y_pred = np.concatenate(y_pred)
     results = metrics.compute_all(
         y_true,
         y_pred,
@@ -136,7 +137,7 @@ def evaluate_transformer(model, test_loader, device):
         # pred_ranges=your_predicted_ranges  # Optional
     )
     print("Metrics:", results)
-    accuracy = (y_true == y_pred).float().mean().item()
+    accuracy = (y_true == y_pred).mean()
     print(f"Evaluation Accuracy: {accuracy:.4f}")
 
 

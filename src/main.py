@@ -1,57 +1,77 @@
+import argparse
 import pandas as pd
-from utils.visualizations import ModelVisualizer
-from models.isolation_forest import IsolationForest
+import torch
+import torch.nn as nn
+from models.isolation_forest import IsolationForest as IsoForest
+from models.gru import GRUAnomalyDetector, prepare_dataset as prepare_gru_dataset, train_model as train_gru, evaluate_model as eval_gru
+from models.lstm_rnn import LSTM_RNN_Hybrid, prepare_dataset as prepare_lstm_dataset, train_model as train_lstm, evaluate_model as eval_lstm
+from models.transformer import TimeSeriesTransformer, prepare_dataset as prepare_transformer_dataset, train_transformer, evaluate_transformer
+from utils.gpu_utils import GPUUtils
+
+
+def run_isolation_forest():
+    print("Running Isolation Forest...")
+    data = pd.read_csv('data/sampled_data/auth_sample.csv', low_memory=False)
+    feature_columns = [col for col in data.columns if col.startswith(('auth_type_', 'logon_type_', 'auth_orientation_', 'success_'))]
+    data = data[feature_columns].fillna(0)
+
+    iso_forest = IsoForest(contamination=0.01, random_state=42)
+    iso_forest.fit(data)
+    preds = iso_forest.predict(data)
+    print(f"Isolation Forest finished. Anomalies detected: {(preds == -1).sum()}")
+
+
+def run_gru():
+    print("Running GRU...")
+    device = GPUUtils.get_device()
+    train_ds, test_ds = prepare_gru_dataset('data/labeled_data/labeled_auth_sample.csv')
+    model = GRUAnomalyDetector(input_size=len(train_ds[0][0])).to(device)
+    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=64)
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=64)
+
+    train_gru(model, train_loader, nn.BCELoss(), torch.optim.Adam(model.parameters()), device)
+    eval_gru(model, test_loader, device)
+
+
+def run_lstm_rnn():
+    print("Running LSTM+RNN Hybrid...")
+    device = GPUUtils.get_device()
+    train_ds, test_ds = prepare_lstm_dataset('data/labeled_data/labeled_auth_sample.csv')
+    model = LSTM_RNN_Hybrid(input_size=train_ds[0][0].shape[1]).to(device)
+    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=64)
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=64)
+
+    train_lstm(model, train_loader, nn.BCELoss(), torch.optim.Adam(model.parameters()), device)
+    eval_lstm(model, test_loader, device)
+
+
+def run_transformer():
+    print("Running Transformer...")
+    device = GPUUtils.get_device()
+    train_ds, test_ds = prepare_transformer_dataset('data/labeled_data/labeled_auth_sample.csv')
+    model = TimeSeriesTransformer(input_size=train_ds[0][0].shape[1]).to(device)
+    train_loader = torch.utils.data.DataLoader(train_ds, batch_size=64)
+    test_loader = torch.utils.data.DataLoader(test_ds, batch_size=64)
+
+    train_transformer(model, train_loader, nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device)), torch.optim.Adam(model.parameters()), device)
+    evaluate_transformer(model, test_loader, device)
+
 
 if __name__ == "__main__":
-    chunk_size = 50000  # Adjust chunk size
-    reader = pd.read_csv('data/sampled_data/auth_sample.csv', chunksize=chunk_size, low_memory=False)
+    print("Select a model to run:")
+    print("1. Isolation Forest")
+    print("2. GRU")
+    print("3. LSTM+RNN Hybrid")
+    print("4. Transformer")
+    choice = input("Enter the number of the model you want to run: ")
 
-    processed_chunks = []
-    visualizer = ModelVisualizer(model_name='IsolationForest')
-
-    for chunk in reader:
-        print(f"Processing chunk with shape: {chunk.shape}")
-
-        # Dynamically identify feature columns
-        feature_columns = [
-            col for col in chunk.columns if col.startswith(('auth_type_', 'logon_type_', 'auth_orientation_', 'success_'))
-        ]
-        if not feature_columns:
-            print("No valid feature columns in this chunk. Skipping...")
-            continue
-
-        # Drop rows with missing values in feature columns
-        features = chunk[feature_columns].dropna()
-        print(f"Features shape after dropping NaNs: {features.shape}")
-
-        if features.empty:
-            print("This chunk has no valid data after dropping NaNs. Skipping...")
-            continue
-
-        # Train Isolation Forest on the chunk
-        iso_forest = IsolationForest(contamination=0.01, random_state=42)
-        iso_forest.fit(features)
-
-        # Predict anomalies
-        chunk['anomaly'] = iso_forest.predict(features)
-        processed_chunks.append(chunk)
-
-    # Combine all processed chunks
-    combined_data = pd.concat(processed_chunks, ignore_index=True)
-    print(f"Combined data shape: {combined_data.shape}")
-
-    # Save the combined dataset
-    combined_output_path = 'data/sampled_data/auth_with_anomalies_combined.csv'
-    combined_data.to_csv(combined_output_path, index=False)
-    print(f"Combined dataset with anomalies saved to {combined_output_path}")
-
-    # Visualize combined results
-    visualizer.visualize(
-        data=combined_data,
-        plot_type='categorical',
-        x_col='src_comp',
-        y_col='dst_comp',
-        label_col='anomaly',
-        title='Anomalies by Source and Destination Computers'
-    )
-    print("Visualization completed.")
+    if choice == '1':
+        run_isolation_forest()
+    elif choice == '2':
+        run_gru()
+    elif choice == '3':
+        run_lstm_rnn()
+    elif choice == '4':
+        run_transformer()
+    else:
+        print("Invalid choice. Please select a valid model number.")
