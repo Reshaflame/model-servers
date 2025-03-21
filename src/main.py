@@ -1,24 +1,11 @@
-import argparse
 import pandas as pd
 import torch
 import torch.nn as nn
-from models.isolation_forest import IsolationForest as IsoForest
+from pipeline.iso_pipeline import run_iso_pipeline
 from models.gru import GRUAnomalyDetector, prepare_dataset as prepare_gru_dataset, train_model as train_gru, evaluate_model as eval_gru
 from models.lstm_rnn import LSTM_RNN_Hybrid, prepare_dataset as prepare_lstm_dataset, train_model as train_lstm, evaluate_model as eval_lstm
 from models.transformer import TimeSeriesTransformer, prepare_dataset as prepare_transformer_dataset, train_transformer, evaluate_transformer
 from utils.gpu_utils import GPUUtils
-
-
-def run_isolation_forest():
-    print("Running Isolation Forest...")
-    data = pd.read_csv('data/sampled_data/auth_sample.csv', low_memory=False)
-    feature_columns = [col for col in data.columns if col.startswith(('auth_type_', 'logon_type_', 'auth_orientation_', 'success_'))]
-    data = data[feature_columns].fillna(0)
-
-    iso_forest = IsoForest(contamination=0.01, random_state=42)
-    iso_forest.fit(data)
-    preds = iso_forest.predict(data)
-    print(f"Isolation Forest finished. Anomalies detected: {(preds == -1).sum()}")
 
 
 def run_gru():
@@ -66,7 +53,7 @@ if __name__ == "__main__":
     choice = input("Enter the number of the model you want to run: ")
 
     if choice == '1':
-        run_isolation_forest()
+        run_iso_pipeline(preprocess=False)
     elif choice == '2':
         run_gru()
     elif choice == '3':

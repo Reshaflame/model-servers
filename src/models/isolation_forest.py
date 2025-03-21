@@ -1,63 +1,52 @@
+# src/models/isolation_forest.py
 from sklearn.ensemble import IsolationForest
-from utils.metrics import Metrics
-import pandas as pd
+from skopt import gp_minimize
+from skopt.space import Real, Integer
 import numpy as np
+from utils.metrics import Metrics
 
-metrics = Metrics()
+class IsolationForestModel:
+    def __init__(self, contamination=0.05, n_estimators=100, max_samples='auto', random_state=42):
+        self.model = IsolationForest(
+            contamination=contamination,
+            n_estimators=n_estimators,
+            max_samples=max_samples,
+            random_state=random_state
+        )
+        self.metrics = Metrics()
 
-# Load preprocessed dataset
-auth_data = pd.read_csv('data/sampled_data/auth_sample.csv', low_memory=False)
-print("Loaded auth data shape:", auth_data.shape)
+    def fit(self, X):
+        self.model.fit(X)
 
-# Dynamically identify numerical and one-hot encoded columns
-categorical_columns = [
-    col for col in auth_data.columns if col.startswith(('auth_type_', 'logon_type_', 'auth_orientation_', 'success_'))
-]
+    def predict(self, X):
+        return self.model.predict(X)
 
-# Select only the columns available in the dataset
-selected_features = categorical_columns
-print("Selected feature columns:", selected_features)
+    def evaluate(self, X, y_true):
+        preds = self.model.predict(X)
+        y_pred = np.where(preds == -1, 1, 0)
+        return self.metrics.compute_standard_metrics(y_true, y_pred)
 
-# Handle missing values
-# Option 1: Drop columns with excessive NaNs
-# threshold = 0.5 * len(auth_data)
-# selected_features = [col for col in selected_features if auth_data[col].isna().sum() < threshold]
-# print("Selected features after dropping high-NaN columns:", selected_features)
+    def optimize_hyperparameters(self, X):
+        def objective(params):
+            contamination, n_estimators = params
+            model = IsolationForest(
+                contamination=contamination,
+                n_estimators=int(n_estimators),
+                random_state=42
+            )
+            preds = model.fit_predict(X)
+            y_dummy = np.zeros_like(preds)
+            y_pred = np.where(preds == -1, 1, 0)
+            metrics = self.metrics.compute_standard_metrics(y_dummy, y_pred)
+            return -(metrics['F1'])  # maximize F1
 
-# Option 2: Fill missing values (uncomment to use)
-auth_data[selected_features] = auth_data[selected_features].fillna(0)
+        space = [
+            Real(0.01, 0.2, name='contamination'),
+            Integer(50, 300, name='n_estimators')
+        ]
 
-# Drop rows with remaining missing values
-features = auth_data[selected_features].dropna()
-print("Features shape after handling missing values:", features.shape)
+        result = gp_minimize(objective, space, n_calls=20, random_state=42)
+        print(f"Optimized contamination: {result.x[0]}, n_estimators: {int(result.x[1])}")
 
-# Initialize and train Isolation Forest
-iso_forest = IsolationForest(contamination=0.05, random_state=42)
-iso_forest.fit(features)
-
-# Predict anomalies
-predictions = iso_forest.predict(features)
-
-# Convert predictions from (-1, 1) to (1 = anomaly, 0 = normal)
-y_pred = np.where(predictions == -1, 1, 0)
-
-# Generate dummy y_true (you currently have unlabeled data)
-y_true = np.zeros_like(y_pred)  # Assume normal data as baseline (optional if you have labels)
-
-# Call the metrics
-results = metrics.compute_standard_metrics(y_true, y_pred)
-print("Isolation Forest Metrics:", results)
-
-# Add predictions to the dataset
-auth_data = auth_data.loc[features.index]  # Align with features after handling missing values
-auth_data['anomaly'] = predictions  # -1 = anomaly, 1 = normal
-print("Anomalies added to the dataset.")
-
-# Save results
-output_path = 'data/sampled_data/auth_with_anomalies.csv'
-auth_data.to_csv(output_path, index=False)
-print(f"Results saved to {output_path}")
-
-# Debugging: Count anomalies
-anomaly_count = (auth_data['anomaly'] == -1).sum()
-print(f"Number of anomalies detected: {anomaly_count}")
+        # Update model with best parameters
+        self.model.set_params(contamination=result.x[0], n_estimators=int(result.x[1]))
