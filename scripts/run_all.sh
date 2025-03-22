@@ -1,5 +1,6 @@
 #!/bin/bash
 
+mkdir -p /app/models
 echo "[Launcher] Starting end-to-end pipeline..."
 
 # Step 1: Download datasets (if missing)
