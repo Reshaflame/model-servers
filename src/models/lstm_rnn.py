@@ -1,6 +1,7 @@
 import torch
 import os
 import torch.nn as nn
+from ray import train as ray_train
 from torch.utils.data import DataLoader, TensorDataset, random_split
 from utils.metrics import Metrics
 import pandas as pd
@@ -54,21 +55,51 @@ def prepare_dataset(file_path, sequence_length=10):
     test_size = len(dataset) - train_size
     return random_split(dataset, [train_size, test_size])
 
-def train_model(model, train_loader, criterion, optimizer, device, epochs=5):
-    model.train()
-    for epoch in range(epochs):
-        epoch_loss = 0
+def train_model(config, train_loader, val_loader, input_size):
+    model = LSTM_RNN_Hybrid(
+        input_size=input_size,
+        hidden_size=config["hidden_size"],
+        num_layers=config["num_layers"]
+    )
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
+    criterion = nn.BCELoss()
+
+    for epoch in range(5):
+        model.train()
         for features, labels in train_loader:
             features, labels = features.to(device), labels.to(device)
-
             optimizer.zero_grad()
             outputs = model(features)
             loss = criterion(outputs, labels)
             loss.backward()
             optimizer.step()
 
-            epoch_loss += loss.item()
-        print(f"Epoch {epoch+1}/{epochs}, Loss: {epoch_loss/len(train_loader):.4f}")
+    # Evaluation for Ray Tune
+    model.eval()
+    metrics = Metrics()
+    y_true, y_pred = [], []
+    val_loss = 0
+
+    with torch.no_grad():
+        for features, labels in val_loader:
+            features, labels = features.to(device), labels.to(device)
+            outputs = model(features)
+            val_loss += criterion(outputs, labels).item()
+            predictions = (outputs > 0.5).float()
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(predictions.cpu().numpy())
+
+    val_loss /= len(val_loader)
+    y_true = np.array(y_true).flatten()
+    y_pred = np.array(y_pred).flatten()
+    metrics_dict = metrics.compute_standard_metrics(y_true, y_pred)
+    metrics_dict["val_loss"] = val_loss
+
+    # Ray Tune reporting
+    ray_train.report(metrics_dict)
 
 def evaluate_model(model, test_loader, device):
     model.eval()
@@ -91,7 +122,7 @@ def evaluate_model(model, test_loader, device):
     accuracy = np.mean(np.array(y_true) == np.array(y_pred))
     print(f"Evaluation Accuracy: {accuracy:.4f}")
 
-if __name__ == "__main__":
+if __name__ == "__main__": # for manual tests
     device = GPUUtils.get_device()
     labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'
 

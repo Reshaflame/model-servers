@@ -1,4 +1,4 @@
-from sklearn.metrics import precision_score, recall_score, f1_score
+from sklearn.metrics import precision_score, recall_score, f1_score, accuracy_score
 
 class Metrics:
     def __init__(self):
@@ -10,7 +10,8 @@ class Metrics:
         precision = precision_score(y_true, y_pred)
         recall = recall_score(y_true, y_pred)
         f1 = f1_score(y_true, y_pred)
-        return {"Precision": precision, "Recall": recall, "F1": f1}
+        accuracy = accuracy_score(y_true, y_pred)
+        return {"Precision": precision, "Recall": recall, "F1": f1, "Accuracy": accuracy}
 
     # def compute_tapr(self, anomalies, predictions):
     #     return self.tapr.evaluate(anomalies, predictions)
@@ -19,4 +20,4 @@ class Metrics:
         standard = self.compute_standard_metrics(y_true, y_pred)
         # tapr = self.compute_tapr(anomaly_ranges, pred_ranges)
         # return {**standard, **tapr}
-        return {**standard}
+        return self.compute_standard_metrics(y_true, y_pred)

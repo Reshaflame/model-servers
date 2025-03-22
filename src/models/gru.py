@@ -2,6 +2,7 @@ import pandas as pd
 import numpy as np
 import torch
 import torch.nn as nn
+from ray import train as ray_train
 from utils.metrics import Metrics
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
@@ -83,54 +84,57 @@ def prepare_dataset(file_path):
 
 
 # Train the GRU model
-def train_model(model, train_loader, criterion, optimizer, device, epochs=10):
-    model.train()
-    for epoch in range(epochs):
-        epoch_loss = 0
+def train_model(config, train_loader, val_loader, input_size):
+    model = GRUAnomalyDetector(
+        input_size=input_size,
+        hidden_size=config["hidden_size"],
+        num_layers=config["num_layers"]
+    )
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
+    criterion = nn.BCELoss()
+
+    for epoch in range(10):
+        model.train()
         for batch_features, batch_labels in train_loader:
             batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
-
-            # Reshape features to include sequence length (sequence_length = 1)
-            batch_features = batch_features.unsqueeze(1)  # Add sequence length dimension
-
-            # Forward pass
+            batch_features = batch_features.unsqueeze(1)
+            optimizer.zero_grad()
             outputs = model(batch_features)
             loss = criterion(outputs, batch_labels)
-
-            # Backward pass
-            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-            epoch_loss += loss.item()
-        print(f"Epoch {epoch + 1}/{epochs}, Loss: {epoch_loss / len(train_loader):.4f}")
+    # Evaluation for Ray Tune
+    model.eval()
+    val_loss = 0
+    y_true, y_pred = [], []
+    with torch.no_grad():
+        for features, labels in val_loader:
+            features, labels = features.to(device), labels.to(device)
+            preds = model(features.unsqueeze(1))
+            loss = criterion(preds, labels)  # Add loss calculation here
+            val_loss += loss.item()
+
+            preds = (preds > 0.5).float()
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(preds.cpu().numpy())
+    
+    val_loss /= len(val_loader)
+
+    y_true = np.array(y_true).flatten()
+    y_pred = np.array(y_pred).flatten()
+
+    metrics_dict = metrics.compute_standard_metrics(y_true, y_pred)
+    metrics_dict["val_loss"] = val_loss  # Now it's defined!
+
+    ray_train.report(metrics_dict)
 
 
-# Evaluate the GRU model
-def train_model(model, train_loader, criterion, optimizer, device, epochs=10):
-    model.train()
-    for epoch in range(epochs):
-        epoch_loss = 0
-        for batch_features, batch_labels in train_loader:
-            batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
 
-            # Reshape features to include sequence length (sequence_length = 1)
-            batch_features = batch_features.unsqueeze(1)  # Add sequence length dimension
-
-            # Forward pass
-            outputs = model(batch_features)
-            loss = criterion(outputs, batch_labels)
-
-            # Backward pass
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-
-            epoch_loss += loss.item()
-        print(f"Epoch {epoch + 1}/{epochs}, Loss: {epoch_loss / len(train_loader):.4f}")
-
-
-# Main function
+# Main function for manual tests
 if __name__ == "__main__":
     # File path to preprocessed data
     labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'

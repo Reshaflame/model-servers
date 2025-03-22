@@ -1,8 +1,11 @@
 # src/pipeline/iso_pipeline.py
 
+from utils.tuning import SkoptTuner
+from skopt.space import Real, Integer
 import pandas as pd
 from models.isolation_forest import IsolationForestModel
 from preprocess.unlabeledPreprocess import preprocess_auth_data_sample
+from utils.metrics import Metrics
 import os
 
 def run_iso_pipeline(preprocessed_path='data/sampled_data/auth_sample.csv', 
@@ -28,11 +31,17 @@ def run_iso_pipeline(preprocessed_path='data/sampled_data/auth_sample.csv',
     y_dummy = [0] * len(X)  # Temporary until we have labeled data
 
     # Step 4: Train & Optimize
-    model = IsolationForestModel()
     print("[Pipeline] Optimizing hyperparameters with Skopt...")
-    model.optimize_hyperparameters(X)
-    
-    print("[Pipeline] Training model...")
+    space = [
+        Real(0.01, 0.2, name='contamination'),
+        Integer(50, 300, name='n_estimators')
+    ]
+
+    tuner = SkoptTuner(IsolationForestModel, Metrics().compute_standard_metrics, space)
+    best_params = tuner.optimize(X, y_dummy)
+
+    # Update model with best params
+    model = IsolationForestModel(contamination=best_params[0], n_estimators=int(best_params[1]))
     model.fit(X)
 
     # Step 5: Evaluate

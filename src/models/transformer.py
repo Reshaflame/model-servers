@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 import os
 from torch.utils.data import DataLoader, TensorDataset, random_split
+from ray import train as ray_train
 from utils.metrics import Metrics
 import pandas as pd
 import numpy as np
@@ -82,38 +83,68 @@ def prepare_dataset(file_path, sequence_length=10):
     return train_dataset, test_dataset
 
 
-def train_transformer(model, train_loader, criterion, optimizer, device, epochs=10, scheduler=None):
-    model.train()
-    for epoch in range(epochs):
-        total_loss = 0
+def train_transformer(config, train_loader, val_loader, input_size):
+    # Create model with hyperparameters from Ray Tune
+    model = TimeSeriesTransformer(
+        input_size=input_size,
+        d_model=config["d_model"],
+        nhead=config["nhead"],
+        num_encoder_layers=config["num_encoder_layers"],
+        dim_feedforward=config["dim_feedforward"],
+        dropout=config["dropout"]
+    ).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+
+    # Optimizer & scheduler
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
+    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device))
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+
+    # Init weights
+    def init_weights(m):
+        if isinstance(m, (nn.Linear, nn.Conv1d)):
+            nn.init.xavier_uniform_(m.weight)
+            if m.bias is not None:
+                nn.init.zeros_(m.bias)
+    model.apply(init_weights)
+
+    # Train loop
+    for epoch in range(5):  # Keep epochs low for dev
+        model.train()
         for batch_features, batch_labels in train_loader:
             batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
-            
             optimizer.zero_grad()
             outputs = model(batch_features)
-            
-            # Debug outputs
-            print(f"Outputs min: {outputs.min().item()}, max: {outputs.max().item()}, mean: {outputs.mean().item()}")
-            
             loss = criterion(outputs, batch_labels)
-            
-            if torch.isnan(loss):
-                print("NaN loss encountered!")
-                break  # Exit loop on NaN loss
-            
             loss.backward()
-            
-            # Gradient clipping
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
-            
             optimizer.step()
-            total_loss += loss.item()
-        
-        print(f"Epoch {epoch + 1}/{epochs}, Loss: {total_loss / len(train_loader):.4f}")
+        scheduler.step()
 
-        # Step the scheduler
-        if scheduler:
-            scheduler.step()
+    # Eval loop
+    model.eval()
+    metrics = Metrics()
+    y_true, y_pred = [], []
+    val_loss = 0
+
+    with torch.no_grad():
+        for features, labels in val_loader:
+            features, labels = features.to(device), labels.to(device)
+            outputs = model(features)
+            val_loss += criterion(outputs, labels).item()
+            predictions = (torch.sigmoid(outputs) > 0.5).float()
+            y_true.extend(labels.cpu().numpy())
+            y_pred.extend(predictions.cpu().numpy())
+
+    val_loss /= len(val_loader)
+    y_true = np.array(y_true).flatten()
+    y_pred = np.array(y_pred).flatten()
+    metrics_dict = metrics.compute_standard_metrics(y_true, y_pred)
+    metrics_dict["val_loss"] = val_loss
+
+    # Report metrics to Ray Tune
+    ray_train.report(metrics_dict)
 
 
 
