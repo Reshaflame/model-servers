@@ -1,6 +1,7 @@
 from utils.tuning import RayTuner
 from models.gru import GRUAnomalyDetector, train_model
 from preprocess.labeledPreprocess import preprocess_labeled_data_with_matching_parallel
+from utils.evaluator import evaluate_and_export
 from utils.model_exporter import export_model
 from torch.utils.data import DataLoader
 import pandas as pd
@@ -90,5 +91,9 @@ def run_gru_pipeline(preprocess=False):
             loss.backward()
             optimizer.step()
 
-    # Step 6: Export the model
+    # Step 6: Export the model weights
     export_model(model, "/app/models/gru_trained_model.pth")
+
+    # Step 7: Run inference & export predictions
+    evaluate_and_export(model, dataset, model_name="gru", device=device)
+

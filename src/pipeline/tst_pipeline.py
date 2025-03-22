@@ -4,6 +4,7 @@ from utils.tuning import RayTuner
 from models.transformer import TimeSeriesTransformer, prepare_dataset, train_transformer
 from preprocess.labeledPreprocess import preprocess_labeled_data_with_matching_parallel
 from utils.model_exporter import export_model
+from utils.evaluator import evaluate_and_export
 from torch.utils.data import DataLoader
 from ray import tune
 import torch
@@ -73,4 +74,12 @@ def run_tst_pipeline(preprocess=False):
             loss.backward()
             optimizer.step()
 
+    # Define device
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Combine train + val into a single dataset for ensemble prediction output
+    full_dataset = torch.utils.data.ConcatDataset([train_dataset, val_dataset])
+
     export_model(model, "/app/models/transformer_trained_model.pth")
+
+    evaluate_and_export(model, full_dataset, model_name="transformer", device=device)

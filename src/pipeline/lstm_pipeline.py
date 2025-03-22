@@ -4,6 +4,7 @@ from utils.tuning import RayTuner
 from models.lstm_rnn import LSTM_RNN_Hybrid, train_model
 from preprocess.labeledPreprocess import preprocess_labeled_data_with_matching_parallel
 from utils.model_exporter import export_model
+from utils.evaluator import evaluate_and_export
 from torch.utils.data import DataLoader
 from ray import tune
 import pandas as pd
@@ -89,3 +90,5 @@ def run_lstm_pipeline(preprocess=False):
             optimizer.step()
 
     export_model(model, "/app/models/lstm_rnn_trained_model.pth")
+
+    evaluate_and_export(model, dataset, model_name="lstm", device=device)

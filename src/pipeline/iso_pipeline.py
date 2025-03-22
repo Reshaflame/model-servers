@@ -7,6 +7,8 @@ from models.isolation_forest import IsolationForestModel
 from preprocess.unlabeledPreprocess import preprocess_auth_data_sample
 from utils.metrics import Metrics
 import os
+import numpy as np
+
 
 def run_iso_pipeline(preprocessed_path='data/sampled_data/auth_sample.csv', 
                      preprocess=True, 
@@ -43,7 +45,7 @@ def run_iso_pipeline(preprocessed_path='data/sampled_data/auth_sample.csv',
     # Update model with best params
     model = IsolationForestModel(contamination=best_params[0], n_estimators=int(best_params[1]))
     model.fit(X)
-
+    
     # Step 5: Evaluate
     metrics = model.evaluate(X, y_dummy)
     print(f"[Pipeline] Metrics after optimization: {metrics}")
@@ -52,6 +54,12 @@ def run_iso_pipeline(preprocessed_path='data/sampled_data/auth_sample.csv',
     preds = model.predict(X)
     anomalies_detected = (preds == -1).sum()
     print(f"[Pipeline] Total anomalies detected: {anomalies_detected}")
+
+    # Step 7: Export preds and y_true for ensemble training
+    os.makedirs('/app/models/preds', exist_ok=True)
+    np.save("/app/models/preds/iso_preds.npy", preds)
+    np.save("/app/models/preds/y_true.npy", y_dummy)
+    print("[Pipeline] Isolation Forest predictions exported for ensemble training.")
 
     # Optional: Save output
     data['anomaly'] = preds

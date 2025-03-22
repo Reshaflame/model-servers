@@ -1,30 +1,34 @@
 #!/bin/bash
 
 mkdir -p /app/models
-echo "[Launcher] Starting end-to-end pipeline..."
+mkdir -p /app/data
 
-# Step 1: Download datasets (if missing)
-bash /app/scripts/download_datasets.sh
+echo "[Launcher] Starting full end-to-end pipeline..."
 
-# Step 1.5: Preprocess labeled data once
-echo "[Launcher] Running full preprocessing..."
+# Step 1: Preprocessing
+echo "[Step 1] Preprocessing labeled data..."
 python src/preprocess/labeledPreprocess.py
 
-# Step 2: Train GRU pipeline
-echo "[Launcher] Training GRU model..."
+echo "[Step 2] Preprocessing unlabeled data..."
+python src/preprocess/unlabeledPreprocess.py
+
+# Step 2: Train models
+echo "[Step 3] Training GRU..."
 python src/pipeline/gru_pipeline.py
-echo "[Launcher] ✅ GRU model completed and exported."
 
-# Step 3: Train LSTM+RNN pipeline
-echo "[Launcher] Training LSTM+RNN model..."
+echo "[Step 4] Training LSTM+RNN..."
 python src/pipeline/lstm_pipeline.py
-echo "[Launcher] ✅ LSTM+RNN model completed and exported."
 
-# Step 4: Train Transformer pipeline
-echo "[Launcher] Training Transformer model..."
+echo "[Step 5] Training Transformer..."
 python src/pipeline/tst_pipeline.py
-echo "[Launcher] ✅ Transformer model completed and exported."
 
-# Step 5: Launch Flask web server for model downloads
-echo "[Launcher] Launching model download web server on port 8888..."
+echo "[Step 6] Training Isolation Forest..."
+python src/pipeline/iso_pipeline.py
+
+# Step 3: Weighted Voting
+echo "[Step 7] Training Weighted Voting..."
+python src/decision/weighted_voting.py
+
+# Step 4: Serve Flask UI
+echo "[Step 8] Serving download page on port 8888..."
 python src/utils/flask_server.py
