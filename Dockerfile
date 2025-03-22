@@ -5,15 +5,21 @@ FROM nvidia/cuda:12.4.0-runtime-ubuntu22.04
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV DEBIAN_FRONTEND=noninteractive
+ENV RAY_memory=auto
+ENV RAY_cpu=auto
+ENV RAY_gpu=auto
 
 # Install OS-level dependencies
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     python3.10 \
     python3.10-venv \
     python3-pip \
     git \
     curl \
+    nvidia-cuda-toolkit \
+    nvidia-container-toolkit \
     && rm -rf /var/lib/apt/lists/*
+
 
 # Set python3.10 as default
 RUN ln -s /usr/bin/python3.10 /usr/bin/python && \
@@ -27,7 +33,9 @@ COPY requirements.txt .
 
 # Install Python dependencies
 RUN pip install --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    pip install --no-cache-dir nvidia-pyindex && \
+    pip install --no-cache-dir nvidia-pytorch==2.5.0+nvidia_cuda12.4_cudnn9.1
 
 # Copy your source code into the container
 COPY ./src ./src
@@ -36,9 +44,11 @@ COPY ./src ./src
 RUN pip install --no-cache-dir gdown
 
 # Copy your download script into the image
-COPY ./scripts/download_datasets.sh /app/scripts/download_datasets.sh
-COPY ./scripts/run_all.sh /app/scripts/run_all.sh
-RUN chmod +x /app/scripts/run_all.sh
+WORKDIR /app/scripts
+COPY ./scripts/download_datasets.sh .
+COPY ./scripts/run_all.sh .
+RUN chmod +x run_all.sh
+WORKDIR /app
 
 # Define the entrypoint (you can modify based on your typical workflow)
-CMD bash /app/scripts/run_all.sh
+ENTRYPOINT ["bash", "/app/scripts/run_all.sh"]
