@@ -1,12 +1,26 @@
 #!/bin/bash
 
-echo "[Downloader] Creating /app/data directory..."
 mkdir -p /app/data
 
-echo "[Downloader] Downloading auth.txt.gz..."
-gdown --id 1ltgSaY4Am1mX6wwpKyOgGxL9XgTBUrm1 -O /app/data/auth.txt.gz
+# Check and download auth.txt.gz if missing
+if [ ! -f /app/data/auth.txt.gz ]; then
+    echo "[Downloader] Downloading auth.txt.gz..."
+    gdown --id 1ltgSaY4Am1mX6wwpKyOgGxL9XgTBUrm1 -O /app/data/auth.txt.gz
+else
+    echo "[Downloader] auth.txt.gz already exists, skipping download."
+fi
 
-echo "[Downloader] Downloading redteam.txt.gz..."
-gdown --id 19wVQKYQhgj3ziLvXz1aNY10x4Qt3UxBC -O /app/data/redteam.txt.gz
+# Check and download redteam.txt.gz if missing
+if [ ! -f /app/data/redteam.txt.gz ]; then
+    echo "[Downloader] Downloading redteam.txt.gz..."
+    gdown --id 19wVQKYQhgj3ziLvXz1aNY10x4Qt3UxBC -O /app/data/redteam.txt.gz
+else
+    echo "[Downloader] redteam.txt.gz already exists, skipping download."
+fi
 
-echo "[Downloader] ✅ All datasets downloaded into /app/data"
+if [ $? -ne 0 ]; then
+    echo "[Downloader] ❌ Download failed!"
+    exit 1
+fi
+
+echo "[Downloader] ✅ Dataset download step completed."

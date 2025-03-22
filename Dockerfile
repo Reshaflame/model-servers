@@ -37,6 +37,8 @@ RUN pip install --no-cache-dir gdown
 
 # Copy your download script into the image
 COPY ./scripts/download_datasets.sh /app/scripts/download_datasets.sh
+COPY ./scripts/run_all.sh /app/scripts/run_all.sh
+RUN chmod +x /app/scripts/run_all.sh
 
 # Define the entrypoint (you can modify based on your typical workflow)
-CMD bash /app/scripts/download_datasets.sh && python src/main.py
+CMD bash /app/scripts/run_all.sh
