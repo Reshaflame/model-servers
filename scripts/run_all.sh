@@ -5,6 +5,10 @@ mkdir -p /app/data
 
 echo "[Launcher] Starting full end-to-end pipeline..."
 
+# Step 0: Download datasets if needed
+echo "[Step 0] Downloading datasets if missing..."
+bash /app/scripts/download_datasets.sh
+
 # Step 1: Preprocessing
 echo "[Step 1] Preprocessing labeled data..."
 python src/preprocess/labeledPreprocess.py
