@@ -19,8 +19,11 @@ def process_chunk(chunk, redteam_events):
     """
     Process a single chunk: sample, label, and encode.
     """
-    # Sampling
-    sampled_chunk = chunk.sample(frac=0.01, random_state=42)
+    # Sampling for DEV
+    # sampled_chunk = chunk.sample(frac=0.01, random_state=42)
+
+    # Sampling for Runpod
+    sampled_chunk = chunk
 
     # Labeling
     sampled_chunk['label'] = sampled_chunk.apply(
@@ -74,9 +77,9 @@ def preprocess_labeled_data_with_matching_parallel(auth_file, redteam_file, chun
                 matches_found += chunk_matches
 
                 # Stop sampling more chunks once sufficient matches are found
-                if matches_found >= 5:
-                    print(f"Sufficient matches found ({matches_found}). Stopping further sampling.")
-                    break
+                # if matches_found >= 5:
+                #     print(f"Sufficient matches found ({matches_found}). Stopping further sampling.")
+                #     break
 
     # Combine all processed data
     if total_data:

@@ -2,7 +2,7 @@ import pandas as pd
 import gzip
 import os
 
-def preprocess_auth_data_sample(file_path, sample_fraction=0.01, chunk_size=10**6, output_file='auth_sample.csv'):
+def preprocess_auth_data_sample(file_path, chunk_size=10**6, output_file='auth_sample.csv'):
     # Define column names
     columns = [
         "time", "src_user", "dst_user", "src_comp", "dst_comp",
@@ -34,7 +34,10 @@ def preprocess_auth_data_sample(file_path, sample_fraction=0.01, chunk_size=10**
             print(f"Processing chunk {i+1}...")
 
             # Take a random sample
-            sampled_chunk = chunk.sample(frac=sample_fraction, random_state=42)
+            # sampled_chunk = chunk.sample(frac=sample_fraction, random_state=42)
+
+            # take a chunk
+            sampled_chunk = chunk
 
             # Preprocess sampled chunk
             sampled_chunk['time'] = pd.to_datetime(sampled_chunk['time'], errors='coerce', unit='s')
@@ -66,5 +69,5 @@ def preprocess_auth_data_sample(file_path, sample_fraction=0.01, chunk_size=10**
 if __name__ == "__main__":
     print("Starting preprocessing...")
     auth_file_path = 'data/auth.txt.gz'
-    preprocess_auth_data_sample(auth_file_path, sample_fraction=0.01)
+    preprocess_auth_data_sample(auth_file_path)
     print("Preprocessing completed.")
