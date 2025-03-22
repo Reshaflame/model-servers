@@ -85,6 +85,9 @@ def preprocess_labeled_data_with_matching_parallel(auth_file, redteam_file, chun
     if total_data:
         final_data = pd.concat(total_data, ignore_index=True)
         print(f"Combined dataset shape: {final_data.shape}")
+        print(f"[Preprocess] Final dataset shape: {final_data.shape}")
+        print(f"[Preprocess] Anomaly samples: {final_data[final_data['label'] == -1].shape[0]}")
+        print(f"[Preprocess] Normal samples: {final_data[final_data['label'] == 1].shape[0]}")
 
         # Save the labeled dataset
         print(f"Saving labeled dataset to {output_path}...")

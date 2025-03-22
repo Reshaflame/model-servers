@@ -24,7 +24,8 @@ def run_gru_pipeline(preprocess=False):
     # Load preprocessed labeled data
     labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'
     df = pd.read_csv(labeled_data_path)
-    
+    print(f"[Pipeline] Loaded dataset shape: {df.shape}")
+
     # Data Preparation
     labels = df['label'].values
     features = df.drop(columns=['label']).values

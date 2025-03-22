@@ -6,6 +6,10 @@ echo "[Launcher] Starting end-to-end pipeline..."
 # Step 1: Download datasets (if missing)
 bash /app/scripts/download_datasets.sh
 
+# Step 1.5: Preprocess labeled data once
+echo "[Launcher] Running full preprocessing..."
+python src/preprocess/labeledPreprocess.py
+
 # Step 2: Train GRU pipeline
 echo "[Launcher] Training GRU model..."
 python src/pipeline/gru_pipeline.py
