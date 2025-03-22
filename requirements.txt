@@ -90,3 +90,6 @@ wheel==0.45.1
 wrapt==1.17.0
 yarl==1.18.3
 ray[tune]==2.44.0
+Flask==3.1.0
+blinker==1.9.0
+itsdangerous==2.2.0
