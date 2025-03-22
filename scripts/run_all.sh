@@ -32,3 +32,8 @@ python src/decision/weighted_voting.py
 # Step 4: Serve Flask UI
 echo "[Step 8] Serving download page on port 8888..."
 python src/utils/flask_server.py
+
+# Step 5: Train ensemble voting
+echo "[Launcher] Training Weighted Voting ensemble..."
+python src/pipeline/ensemble_pipeline.py
+echo "[Launcher] ✅ Ensemble training completed."
