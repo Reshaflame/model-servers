@@ -1,13 +1,13 @@
-# src/pipeline/gru_pipeline.py
-
 from utils.tuning import RayTuner
 from models.gru import GRUAnomalyDetector, train_model
 from preprocess.labeledPreprocess import preprocess_labeled_data_with_matching_parallel
+from utils.model_exporter import export_model
 from torch.utils.data import DataLoader
 import pandas as pd
 import torch
 import ray
 from ray import tune
+import os
 
 
 def run_gru_pipeline(preprocess=False):
@@ -31,15 +31,12 @@ def run_gru_pipeline(preprocess=False):
     features = torch.tensor(features, dtype=torch.float32)
     labels = torch.tensor((labels != -1).astype(float), dtype=torch.float32).unsqueeze(1)
 
-    # Split
     dataset = torch.utils.data.TensorDataset(features, labels)
     train_size = int(0.8 * len(dataset))
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, len(dataset) - train_size])
     train_loader = DataLoader(train_dataset, batch_size=64)
     val_loader = DataLoader(val_dataset, batch_size=64)
-    train_loader_ref = ray.put(train_loader)
-    val_loader_ref = ray.put(val_loader)
-    input_size_ref = ray.put(features.shape[1])
+    input_size = features.shape[1]
 
     # Step 2: Define Ray Tune search space
     param_space = {
@@ -50,19 +47,41 @@ def run_gru_pipeline(preprocess=False):
 
     # Step 3: Ray Tune wrapper
     def train_func(config):
-        train_loader_local = ray.get(train_loader_ref)
-        val_loader_local = ray.get(val_loader_ref)
-        input_size_local = ray.get(input_size_ref)
-
         return train_model(
             config=config,
-            train_loader=train_loader_local,
-            val_loader=val_loader_local,
-            input_size=input_size_local
+            train_loader=train_loader,
+            val_loader=val_loader,
+            input_size=input_size
         )
-
 
     # Step 4: Run optimization
     tuner = RayTuner(train_func, param_space, num_samples=10, max_epochs=10)
     best_config = tuner.optimize()
     print(f"[Ray Tune] Best hyperparameters: {best_config}")
+
+    # Step 5: Train final model with best config
+    model = GRUAnomalyDetector(
+        input_size=input_size,
+        hidden_size=best_config["hidden_size"],
+        num_layers=best_config["num_layers"]
+    )
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model.to(device)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=best_config["lr"])
+    criterion = torch.nn.BCELoss()
+
+    # Train manually outside Ray Tune now
+    for epoch in range(10):
+        model.train()
+        for batch_features, batch_labels in train_loader:
+            batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
+            batch_features = batch_features.unsqueeze(1)
+            optimizer.zero_grad()
+            outputs = model(batch_features)
+            loss = criterion(outputs, batch_labels)
+            loss.backward()
+            optimizer.step()
+
+    # Step 6: Export the model
+    export_model(model, "/app/models/gru_trained_model.pth")

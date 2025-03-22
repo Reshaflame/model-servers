@@ -32,5 +32,11 @@ RUN pip install --upgrade pip && \
 # Copy your source code into the container
 COPY ./src ./src
 
+# Install gdown for Google Drive automation
+RUN pip install --no-cache-dir gdown
+
+# Copy your download script into the image
+COPY ./scripts/download_datasets.sh /app/scripts/download_datasets.sh
+
 # Define the entrypoint (you can modify based on your typical workflow)
-CMD ["python", "src/main.py"]
+CMD bash /app/scripts/download_datasets.sh && python src/main.py
