@@ -34,7 +34,13 @@ class RayTuner:
         scheduler = ASHAScheduler(
             metric="F1",  # Can also switch to "val_loss" or "accuracy" if needed
             mode="max",
-            grace_period=1,         # minimum epochs before stopping
+
+            # For DEV environment:
+            # grace_period=1,         # minimum epochs before stopping
+            # reduction_factor=2      # aggressiveness of pruning
+
+            # For Runpod environment:
+            grace_period=3,         # minimum epochs before stopping
             reduction_factor=2      # aggressiveness of pruning
         )
 
@@ -45,13 +51,13 @@ class RayTuner:
             stop={"training_iteration": self.max_epochs},
 
             # === LOCAL DEV MODE ===
-            resources_per_trial={"cpu": 4, "gpu": 1},
-            max_concurrent_trials=1,
+            # resources_per_trial={"cpu": 4, "gpu": 1},
+            # max_concurrent_trials=1,
 
             # === RUNPOD / PRODUCTION MODE ===
-            # resources_per_trial={"cpu": 4, "gpu": 1},
-            # max_concurrent_trials=4,  # Customize based on your Runpod instance
-            # scheduler=scheduler
+            resources_per_trial={"cpu": 8, "gpu": 1},
+            max_concurrent_trials=4,  # Customize based on your Runpod instance
+            scheduler=scheduler
         )
 
         return analysis.best_config

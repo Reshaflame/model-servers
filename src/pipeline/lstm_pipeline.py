@@ -39,8 +39,14 @@ def run_lstm_pipeline(preprocess=False):
     dataset = torch.utils.data.TensorDataset(sequences, sequence_labels)
     train_size = int(0.8 * len(dataset))
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, len(dataset) - train_size])
-    train_loader = DataLoader(train_dataset, batch_size=64)
-    val_loader = DataLoader(val_dataset, batch_size=64)
+
+    # for Dev environment:
+    # train_loader = DataLoader(train_dataset, batch_size=64)
+    # val_loader = DataLoader(val_dataset, batch_size=64)
+
+    # for Runpod environment:
+    train_loader = DataLoader(train_dataset, batch_size=256)
+    val_loader = DataLoader(val_dataset, batch_size=256)
 
     param_space = {
         "lr": tune.loguniform(1e-4, 1e-2),

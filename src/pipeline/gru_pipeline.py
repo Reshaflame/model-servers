@@ -34,6 +34,12 @@ def run_gru_pipeline(preprocess=False):
     dataset = torch.utils.data.TensorDataset(features, labels)
     train_size = int(0.8 * len(dataset))
     train_dataset, val_dataset = torch.utils.data.random_split(dataset, [train_size, len(dataset) - train_size])
+    
+    # DEV environment:
+    # train_loader = DataLoader(train_dataset, batch_size=64)
+    # val_loader = DataLoader(val_dataset, batch_size=64)
+
+    # Runpod environment:
     train_loader = DataLoader(train_dataset, batch_size=64)
     val_loader = DataLoader(val_dataset, batch_size=64)
     input_size = features.shape[1]

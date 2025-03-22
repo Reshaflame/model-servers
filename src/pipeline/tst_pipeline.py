@@ -22,8 +22,13 @@ def run_tst_pipeline(preprocess=False):
     labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'
     train_dataset, val_dataset = prepare_dataset(labeled_data_path, sequence_length=10)
 
-    train_loader = DataLoader(train_dataset, batch_size=32)
-    val_loader = DataLoader(val_dataset, batch_size=32)
+    # for Dev environment:
+    # train_loader = DataLoader(train_dataset, batch_size=32)
+    # val_loader = DataLoader(val_dataset, batch_size=32)
+
+    # for Runpod environment:
+    train_loader = DataLoader(train_dataset, batch_size=128)
+    val_loader = DataLoader(val_dataset, batch_size=128)
 
     param_space = {
         "lr": tune.loguniform(1e-4, 1e-2),
