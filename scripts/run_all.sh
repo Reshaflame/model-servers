@@ -1,22 +1,18 @@
 #!/bin/bash
 
 mkdir -p /app/models
-mkdir -p /app/data
+echo "[Launcher] Starting end-to-end pipeline..."
 
-echo "[Launcher] Starting full end-to-end pipeline..."
-
-# Step 0: Download datasets if needed
-echo "[Step 0] Downloading datasets if missing..."
+# Step 1: Download datasets (if missing)
 bash /app/scripts/download_datasets.sh
 
-# Step 1: Preprocessing
+# Step 2 onward: relative paths from /app
 echo "[Step 1] Preprocessing labeled data..."
 python src/preprocess/labeledPreprocess.py
 
 echo "[Step 2] Preprocessing unlabeled data..."
 python src/preprocess/unlabeledPreprocess.py
 
-# Step 2: Train models
 echo "[Step 3] Training GRU..."
 python src/pipeline/gru_pipeline.py
 
@@ -29,15 +25,8 @@ python src/pipeline/tst_pipeline.py
 echo "[Step 6] Training Isolation Forest..."
 python src/pipeline/iso_pipeline.py
 
-# Step 3: Weighted Voting
 echo "[Step 7] Training Weighted Voting..."
 python src/decision/weighted_voting.py
 
-# Step 4: Serve Flask UI
 echo "[Step 8] Serving download page on port 8888..."
 python src/utils/flask_server.py
-
-# Step 5: Train ensemble voting
-echo "[Launcher] Training Weighted Voting ensemble..."
-python src/pipeline/ensemble_pipeline.py
-echo "[Launcher] ✅ Ensemble training completed."
