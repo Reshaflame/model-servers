@@ -9,8 +9,7 @@ ENV RAY_memory=auto
 ENV RAY_cpu=auto
 ENV RAY_gpu=auto
 ENV PYTHONPATH="/app/src"
-ENV NUMBA_CUDA_DRIVER=/usr/local/cuda/lib64/stubs/libcuda.so
-
+ENV NUMBA_CUDA_DRIVER=/usr/local/cuda/compat/libcuda.so.1
 
 # CUDA toolkit paths for Numba/cuDF
 ENV PATH=/usr/local/cuda/bin:$PATH
@@ -33,7 +32,7 @@ RUN ln -s /usr/bin/python3.10 /usr/bin/python && \
 RUN pip install --extra-index-url=https://pypi.nvidia.com \
     cudf-cu12==23.12 dask-cudf-cu12==23.12 --prefer-binary --no-cache-dir
 
-RUN pip install --no-cache-dir numba==0.58.1
+RUN pip install --no-cache-dir numba==0.57.1
 
 # Python dependencies
 COPY requirements.txt ./
