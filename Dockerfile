@@ -9,6 +9,8 @@ ENV RAY_memory=auto
 ENV RAY_cpu=auto
 ENV RAY_gpu=auto
 ENV PYTHONPATH="/app/src"
+ENV NUMBA_CUDA_DRIVER=/usr/local/cuda/lib64/stubs/libcuda.so
+
 
 # CUDA toolkit paths for Numba/cuDF
 ENV PATH=/usr/local/cuda/bin:$PATH
@@ -29,7 +31,7 @@ RUN ln -s /usr/bin/python3.10 /usr/bin/python && \
 
 # Install cuDF + RAPIDS ecosystem (with CUDA 12.4 compatibility)
 RUN pip install --extra-index-url=https://pypi.nvidia.com \
-    cudf-cu12 dask-cudf-cu12 --prefer-binary --no-cache-dir
+    cudf-cu12==23.12 dask-cudf-cu12==23.12 --prefer-binary --no-cache-dir
 
 RUN pip install --no-cache-dir numba==0.58.1
 
@@ -38,7 +40,7 @@ COPY requirements.txt ./
 RUN pip install --no-cache-dir Flask gdown && \
     pip install --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt && \
-    pip install --no-cache-dir torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu124
+    pip install --no-cache-dir torch==2.1.2 torchvision==0.16.2 torchaudio==2.1.2 --index-url https://download.pytorch.org/whl/cu121
 
 # App source
 COPY ./src /app/src

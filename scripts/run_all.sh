@@ -1,12 +1,14 @@
 #!/bin/bash
 
+cd /app
+
 mkdir -p /app/models
 echo "[Launcher] Starting end-to-end pipeline..."
 
 # Step 1: Download datasets (if missing)
-bash /app/scripts/download_datasets.sh
+bash scripts/download_datasets.sh
 
-# Step 2 onward: relative paths from /app
+# Step 2 onward:
 echo "[Step 1] Preprocessing labeled data..."
 python src/preprocess/labeledPreprocess.py
 
