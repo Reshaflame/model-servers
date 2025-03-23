@@ -39,7 +39,6 @@ def preprocess_auth_data(file_path, chunk_size=10**6, output_file='auth.csv'):
     for col, categories in all_categories.items():
         print(f"{col}: {categories}")
 
-    sampled_data = []
     with gzip.open(file_path, 'rt') as file:
         chunk_iterator = pd.read_csv(file, names=columns, sep=',', chunksize=chunk_size)
         for i, chunk in enumerate(chunk_iterator):
@@ -54,7 +53,7 @@ def preprocess_auth_data(file_path, chunk_size=10**6, output_file='auth.csv'):
                     chunk[col] = chunk[col].astype('category').cat.set_categories(list(all_categories[col]))
                 chunk = cudf.get_dummies(chunk, columns=categorical_columns, dummy_na=False)
                 chunk = chunk.fillna(0)
-                sampled_data.append(chunk.to_pandas())
+                chunk = chunk.to_pandas()
 
             else:
                 chunk['time'] = pd.to_datetime(chunk['time'], errors='coerce', unit='s')
@@ -64,17 +63,14 @@ def preprocess_auth_data(file_path, chunk_size=10**6, output_file='auth.csv'):
                     chunk[col] = pd.Categorical(chunk[col], categories=all_categories[col])
                 chunk = pd.get_dummies(chunk, columns=categorical_columns, dummy_na=False)
                 chunk = chunk.fillna(0)
-                sampled_data.append(chunk)
 
-    if sampled_data:
-        final_data = pd.concat(sampled_data, ignore_index=True)
-        print(f"Combined dataset shape: {final_data.shape}")
-        print("Missing values after combining chunks:", final_data.isna().sum())
-        print(f"Overwriting existing file: {output_path}")
-        final_data.to_csv(output_path, index=False)
-        print(f"Processed sample saved to {output_path}")
-    else:
-        print("No data processed.")
+            # Stream to CSV to avoid high memory usage
+            if not os.path.exists(output_path):
+                chunk.to_csv(output_path, index=False)
+            else:
+                chunk.to_csv(output_path, mode='a', header=False, index=False)
+
+    print(f"Preprocessing completed and saved to {output_path}")
 
 if __name__ == "__main__":
     print("Starting preprocessing...")
