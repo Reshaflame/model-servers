@@ -1,12 +1,20 @@
 import os
 import gzip
+import torch
 
-try:
-    import cudf
-    CUDF_AVAILABLE = True
-except ImportError:
+CUDF_AVAILABLE = False
+
+if torch.cuda.is_available():
+    try:
+        import cudf
+        CUDF_AVAILABLE = True
+        print("[INFO] cuDF detected and CUDA available.")
+    except ImportError:
+        import pandas as pd
+        print("[INFO] cuDF not found, falling back to pandas.")
+else:
     import pandas as pd
-    CUDF_AVAILABLE = False
+    print("[INFO] CUDA not available, using pandas.")
 
 
 def preprocess_auth_data(file_path, chunk_size=10**6, output_file='auth.csv'):

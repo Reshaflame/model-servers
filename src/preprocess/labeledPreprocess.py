@@ -1,100 +1,71 @@
-import cudf
-import pandas as pd
-import gzip
 import os
+import gzip
+
+try:
+    import cudf
+    CUDF_AVAILABLE = True
+except ImportError:
+    import pandas as pd
+    CUDF_AVAILABLE = False
+
 from concurrent.futures import ProcessPoolExecutor
 
 # Add the project root directory to the Python path
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-def encode_categorical_columns(data, categorical_columns):
+def process_chunk(chunk, redteam_events, categorical_columns):
     """
-    Encode categorical columns by turning categories into numerical IDs or one-hot encoding.
+    Process a single chunk: label and encode.
     """
-    for col in categorical_columns:
-        data[col] = pd.Categorical(data[col]).codes  # Assign numerical IDs
-    return data
+    if CUDF_AVAILABLE:
+        chunk = cudf.from_pandas(chunk)
+        chunk = chunk.dropna(subset=["time"])
+        chunk = cudf.get_dummies(chunk, columns=categorical_columns)
+        chunk = chunk.to_pandas()
+    else:
+        chunk = chunk.dropna(subset=["time"])
+        chunk = pd.get_dummies(chunk, columns=categorical_columns)
 
-def process_chunk(chunk, redteam_events):
-    """
-    Process a single chunk: sample, label, and encode.
-    """
-    # Sampling for DEV
-    # sampled_chunk = chunk.sample(frac=0.01, random_state=42)
-
-    # Sampling for Runpod
-    # Step 1: Load chunk into cuDF
-    chunk = cudf.from_pandas(chunk)
-
-    # Step 2: GPU-fast processing (cuDF)
-    chunk = chunk.dropna(subset=["time"])  # GPU-accelerated
-    chunk = cudf.get_dummies(chunk, columns=["auth_type", "logon_type", "auth_orientation", "success"])
-
-    # Step 3: Convert to pandas for `.apply()` with CPU parallelism
-    chunk = chunk.to_pandas()
-
-    # Step 4: CPU-parallel labeling (e.g., swifter or manual ProcessPool)
     chunk['label'] = chunk.apply(lambda row: -1 if (row['time'], row['src_user'], row['src_comp'], row['dst_comp']) in redteam_events else 1, axis=1)
-
-    # Step 5: Optional: convert back to cuDF if more GPU ops are needed after
-    # chunk = cudf.from_pandas(chunk)
-
-    # Step 6: Fill any remaining NaNs
     chunk.fillna(0, inplace=True)
-
     return chunk
 
 def preprocess_labeled_data_with_matching_parallel(auth_file, redteam_file, chunk_size=10**6, output_file='labeled_auth.csv'):
-    # Define column names
-    auth_columns = [
+    columns = [
         "time", "src_user", "dst_user", "src_comp", "dst_comp",
         "auth_type", "logon_type", "auth_orientation", "success"
     ]
     redteam_columns = ["time", "user", "src_comp", "dst_comp"]
+    categorical_columns = ['auth_type', 'logon_type', 'auth_orientation', 'success']
+
     output_dir = 'data/labeled_data'
     os.makedirs(output_dir, exist_ok=True)
     output_path = os.path.join(output_dir, output_file)
 
-    # Load redteam data
     print("Loading redteam data...")
     with gzip.open(redteam_file, 'rt') as redteam:
         redteam_data = pd.read_csv(redteam, names=redteam_columns, sep=',')
     redteam_events = set(zip(redteam_data['time'], redteam_data['user'], redteam_data['src_comp'], redteam_data['dst_comp']))
 
     total_data = []
-    matches_found = 0
 
     print("Processing authentication data with parallel sampling and matching...")
     with gzip.open(auth_file, 'rt') as auth:
-        auth_reader = pd.read_csv(auth, names=auth_columns, sep=',', chunksize=chunk_size)
+        auth_reader = pd.read_csv(auth, names=columns, sep=',', chunksize=chunk_size)
 
-        # Process chunks in parallel
         with ProcessPoolExecutor() as executor:
-            futures = [executor.submit(process_chunk, chunk, redteam_events) for chunk in auth_reader]
-
+            futures = [executor.submit(process_chunk, chunk, redteam_events, categorical_columns) for chunk in auth_reader]
             for future in futures:
                 processed_chunk = future.result()
                 total_data.append(processed_chunk)
 
-                # Count matches in this chunk
-                chunk_matches = processed_chunk[processed_chunk['label'] == -1].shape[0]
-                matches_found += chunk_matches
-
-                # Stop sampling more chunks once sufficient matches are found
-                # if matches_found >= 5:
-                #     print(f"Sufficient matches found ({matches_found}). Stopping further sampling.")
-                #     break
-
-    # Combine all processed data
     if total_data:
         final_data = pd.concat(total_data, ignore_index=True)
         print(f"Combined dataset shape: {final_data.shape}")
-        print(f"[Preprocess] Final dataset shape: {final_data.shape}")
         print(f"[Preprocess] Anomaly samples: {final_data[final_data['label'] == -1].shape[0]}")
         print(f"[Preprocess] Normal samples: {final_data[final_data['label'] == 1].shape[0]}")
 
-        # Save the labeled dataset
         print(f"Saving labeled dataset to {output_path}...")
         final_data.to_csv(output_path, index=False)
         print("Labeled dataset saved.")
@@ -102,10 +73,7 @@ def preprocess_labeled_data_with_matching_parallel(auth_file, redteam_file, chun
         print("No data processed.")
 
 if __name__ == "__main__":
-    # Add project root directory to path
-    sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-
-    print("Starting labeled preprocessing with parallel sampling and matching...")
+    print("Starting labeled preprocessing with fallback mechanism...")
     auth_file_path = 'data/auth.txt.gz'
     redteam_file_path = 'data/redteam.txt.gz'
     preprocess_labeled_data_with_matching_parallel(auth_file_path, redteam_file_path, chunk_size=10**6)
