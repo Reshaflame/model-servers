@@ -23,7 +23,7 @@ def run_gru_pipeline(preprocess=False):
         print("[Pipeline] Skipping preprocessing. Using existing labeled dataset.")
 
     # Load preprocessed labeled data
-    labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'
+    labeled_data_path = 'data/labeled_data/labeled_auth.csv'
     df = pd.read_csv(labeled_data_path)
     print(f"[Pipeline] Loaded dataset shape: {df.shape}")
 

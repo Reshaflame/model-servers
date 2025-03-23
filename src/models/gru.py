@@ -137,7 +137,7 @@ def train_model(config, train_loader, val_loader, input_size):
 # Main function for manual tests
 if __name__ == "__main__":
     # File path to preprocessed data
-    labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'
+    labeled_data_path = 'data/labeled_data/labeled_auth.csv'
 
     # Load and prepare the dataset
     train_dataset, test_dataset = prepare_dataset(labeled_data_path)

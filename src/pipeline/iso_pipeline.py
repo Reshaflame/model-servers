@@ -4,13 +4,13 @@ from utils.tuning import SkoptTuner
 from skopt.space import Real, Integer
 import pandas as pd
 from models.isolation_forest import IsolationForestModel
-from preprocess.unlabeledPreprocess import preprocess_auth_data_sample
+from preprocess.unlabeledPreprocess import preprocess_auth_data
 from utils.metrics import Metrics
 import os
 import numpy as np
 
 
-def run_iso_pipeline(preprocessed_path='data/sampled_data/auth_sample.csv', 
+def run_iso_pipeline(preprocessed_path='data/sampled_data/auth.csv', 
                      preprocess=True, 
                      raw_data_path='data/auth.txt.gz',
                      sample_fraction=0.01):
@@ -18,7 +18,7 @@ def run_iso_pipeline(preprocessed_path='data/sampled_data/auth_sample.csv',
     # Step 1: Preprocess if needed
     if preprocess:
         print("[Pipeline] Starting preprocessing...")
-        preprocess_auth_data_sample(file_path=raw_data_path, sample_fraction=sample_fraction)
+        preprocess_auth_data(file_path=raw_data_path, sample_fraction=sample_fraction)
         print("[Pipeline] Preprocessing completed.")
     else:
         print("[Pipeline] Skipping preprocessing. Using existing CSV.")

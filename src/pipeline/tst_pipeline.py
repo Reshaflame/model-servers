@@ -20,7 +20,7 @@ def run_tst_pipeline(preprocess=False):
     else:
         print("[Pipeline] Skipping preprocessing. Using existing labeled dataset.")
 
-    labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'
+    labeled_data_path = 'data/labeled_data/labeled_auth.csv'
     train_dataset, val_dataset = prepare_dataset(labeled_data_path, sequence_length=10)
 
     # for Dev environment:

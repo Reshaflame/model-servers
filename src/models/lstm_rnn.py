@@ -124,7 +124,7 @@ def evaluate_model(model, test_loader, device):
 
 if __name__ == "__main__": # for manual tests
     device = GPUUtils.get_device()
-    labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'
+    labeled_data_path = 'data/labeled_data/labeled_auth.csv'
 
     # Prepare dataset
     train_dataset, test_dataset = prepare_dataset(labeled_data_path)

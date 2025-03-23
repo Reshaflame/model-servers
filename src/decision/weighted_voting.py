@@ -51,7 +51,7 @@ class WeightedVoting:
 
 if __name__ == "__main__":
     preds_dir = "/app/models/preds/"
-    labeled_csv = "/app/data/labeled_data/labeled_auth_sample.csv"
+    labeled_csv = "/app/data/labeled_data/labeled_auth.csv"
     
     # 1. Load ground truth
     df = pd.read_csv(labeled_csv)

@@ -45,7 +45,7 @@ def process_chunk(chunk, redteam_events):
 
     return chunk
 
-def preprocess_labeled_data_with_matching_parallel(auth_file, redteam_file, chunk_size=10**6, output_file='labeled_auth_sample.csv'):
+def preprocess_labeled_data_with_matching_parallel(auth_file, redteam_file, chunk_size=10**6, output_file='labeled_auth.csv'):
     # Define column names
     auth_columns = [
         "time", "src_user", "dst_user", "src_comp", "dst_comp",

@@ -9,7 +9,7 @@ except ImportError:
     CUDF_AVAILABLE = False
 
 
-def preprocess_auth_data_sample(file_path, chunk_size=10**6, output_file='auth_sample.csv'):
+def preprocess_auth_data(file_path, chunk_size=10**6, output_file='auth.csv'):
     columns = [
         "time", "src_user", "dst_user", "src_comp", "dst_comp",
         "auth_type", "logon_type", "auth_orientation", "success"
@@ -71,5 +71,5 @@ def preprocess_auth_data_sample(file_path, chunk_size=10**6, output_file='auth_s
 if __name__ == "__main__":
     print("Starting preprocessing...")
     auth_file_path = 'data/auth.txt.gz'
-    preprocess_auth_data_sample(auth_file_path)
+    preprocess_auth_data(auth_file_path)
     print("Preprocessing completed.")

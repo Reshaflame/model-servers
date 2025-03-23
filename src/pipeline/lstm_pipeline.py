@@ -21,7 +21,7 @@ def run_lstm_pipeline(preprocess=False):
     else:
         print("[Pipeline] Skipping preprocessing. Using existing labeled dataset.")
 
-    labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'
+    labeled_data_path = 'data/labeled_data/labeled_auth.csv'
     df = pd.read_csv(labeled_data_path)
     print(f"[Pipeline] Loaded dataset shape: {df.shape}")
 

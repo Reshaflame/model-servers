@@ -173,7 +173,7 @@ def evaluate_transformer(model, test_loader, device):
 
 
 if __name__ == "__main__":
-    labeled_data_path = 'data/labeled_data/labeled_auth_sample.csv'
+    labeled_data_path = 'data/labeled_data/labeled_auth.csv'
     device = GPUUtils.get_device()
 
     # Load and prepare the dataset

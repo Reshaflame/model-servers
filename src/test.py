@@ -41,7 +41,7 @@ def sample_preprocessed_data(file_path, sample_size=5):
 
 if __name__ == "__main__":
     # File path to the preprocessed labeled dataset
-    labeled_data_path = "data/labeled_data/labeled_auth_sample.csv"
+    labeled_data_path = "data/labeled_data/labeled_auth.csv"
 
     # Sample the dataset
     sampled_data = sample_preprocessed_data(labeled_data_path)
