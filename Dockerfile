@@ -30,6 +30,10 @@ WORKDIR /app
 # Copy only the requirements file first (for Docker cache optimization)
 COPY requirements.txt .
 
+# cuDF & RAPIDS
+RUN pip install --extra-index-url=https://pypi.nvidia.com \
+    cudf-cu12 dask-cudf-cu12 --prefer-binary --no-cache-dir
+
 # Install Python dependencies
 RUN pip install --no-cache-dir Flask &&\
     pip install --upgrade pip && \

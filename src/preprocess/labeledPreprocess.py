@@ -1,3 +1,4 @@
+import cudf
 import pandas as pd
 import gzip
 import os
@@ -23,22 +24,26 @@ def process_chunk(chunk, redteam_events):
     # sampled_chunk = chunk.sample(frac=0.01, random_state=42)
 
     # Sampling for Runpod
-    sampled_chunk = chunk
+    # Step 1: Load chunk into cuDF
+    chunk = cudf.from_pandas(chunk)
 
-    # Labeling
-    sampled_chunk['label'] = sampled_chunk.apply(
-        lambda row: -1 if (row['time'], row['src_user'], row['src_comp'], row['dst_comp']) in redteam_events else 1,
-        axis=1
-    )
+    # Step 2: GPU-fast processing (cuDF)
+    chunk = chunk.dropna(subset=["time"])  # GPU-accelerated
+    chunk = cudf.get_dummies(chunk, columns=["auth_type", "logon_type", "auth_orientation", "success"])
 
-    # Encode categorical columns into numerical values
-    categorical_columns = ['src_user', 'dst_user', 'src_comp', 'dst_comp', 'auth_type', 'logon_type', 'auth_orientation', 'success']
-    sampled_chunk = encode_categorical_columns(sampled_chunk, categorical_columns)
+    # Step 3: Convert to pandas for `.apply()` with CPU parallelism
+    chunk = chunk.to_pandas()
 
-    # Fill NaN values
-    sampled_chunk.fillna(0, inplace=True)
+    # Step 4: CPU-parallel labeling (e.g., swifter or manual ProcessPool)
+    chunk['label'] = chunk.apply(lambda row: -1 if (row['time'], row['src_user'], row['src_comp'], row['dst_comp']) in redteam_events else 1, axis=1)
 
-    return sampled_chunk
+    # Step 5: Optional: convert back to cuDF if more GPU ops are needed after
+    # chunk = cudf.from_pandas(chunk)
+
+    # Step 6: Fill any remaining NaNs
+    chunk.fillna(0, inplace=True)
+
+    return chunk
 
 def preprocess_labeled_data_with_matching_parallel(auth_file, redteam_file, chunk_size=10**6, output_file='labeled_auth_sample.csv'):
     # Define column names
