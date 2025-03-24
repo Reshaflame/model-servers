@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader, TensorDataset, random_split
 from utils.metrics import Metrics
 import pandas as pd
 import numpy as np
+from utils.model_exporter import export_model
 
 # Add the project root directory to the Python path
 import sys
@@ -30,14 +31,10 @@ def prepare_dataset(file_path, sequence_length=10):
     print("Loading preprocessed data...")
     data = pd.read_csv(file_path)
 
-    # Separate features and labels
     labels = data['label'].values
     features = data.drop(columns=['label']).values
-
-    # Map labels: -1 -> 0 (anomaly), 1 -> 1 (normal)
     labels = np.where(labels == -1, 0, labels)
 
-    # Group into sequences
     grouped_features, grouped_labels = [], []
     for i in range(len(features) - sequence_length):
         grouped_features.append(features[i:i+sequence_length])
@@ -46,7 +43,6 @@ def prepare_dataset(file_path, sequence_length=10):
     grouped_features = np.array(grouped_features)
     grouped_labels = np.array(grouped_labels)
 
-    # Convert to tensors
     features_tensor = torch.tensor(grouped_features, dtype=torch.float32)
     labels_tensor = torch.tensor(grouped_labels, dtype=torch.float32).unsqueeze(1)
 
@@ -77,6 +73,9 @@ def train_model(config, train_loader, val_loader, input_size):
             loss.backward()
             optimizer.step()
 
+    # Export trained model after training
+    export_model(model, "/app/models/lstm_rnn_trained_model.pth")
+
     # Evaluation for Ray Tune
     model.eval()
     metrics = Metrics()
@@ -97,8 +96,6 @@ def train_model(config, train_loader, val_loader, input_size):
     y_pred = np.array(y_pred).flatten()
     metrics_dict = metrics.compute_standard_metrics(y_true, y_pred)
     metrics_dict["val_loss"] = val_loss
-
-    # Ray Tune reporting
     ray_train.report(metrics_dict)
 
 def evaluate_model(model, test_loader, device):
@@ -112,31 +109,33 @@ def evaluate_model(model, test_loader, device):
             predictions = (outputs > 0.5).float()
             y_true.extend(labels.cpu().numpy())
             y_pred.extend(predictions.cpu().numpy())
-    results = metrics.compute_all(
-        y_true,
-        y_pred,
-        # anomaly_ranges=your_gt_ranges,  # Optional for TaPR if you can pass intervals
-        # pred_ranges=your_predicted_ranges  # Optional
-    )
+    results = metrics.compute_all(y_true, y_pred)
     print("Metrics:", results)
     accuracy = np.mean(np.array(y_true) == np.array(y_pred))
     print(f"Evaluation Accuracy: {accuracy:.4f}")
 
-if __name__ == "__main__": # for manual tests
+if __name__ == "__main__":  # for manual tests
     device = GPUUtils.get_device()
     labeled_data_path = 'data/labeled_data/labeled_auth.csv'
 
-    # Prepare dataset
     train_dataset, test_dataset = prepare_dataset(labeled_data_path)
     train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
     test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
-    # Define the model, criterion, and optimizer
     input_size = train_dataset[0][0].shape[1]
     model = LSTM_RNN_Hybrid(input_size).to(device)
     criterion = nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
-    # Train and evaluate the model
-    train_model(model, train_loader, criterion, optimizer, device)
+    for epoch in range(5):
+        model.train()
+        for features, labels in train_loader:
+            features, labels = features.to(device), labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(features)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+    export_model(model, "lstm_rnn_manual_test.pth")
     evaluate_model(model, test_loader, device)

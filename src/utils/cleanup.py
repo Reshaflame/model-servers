@@ -31,11 +31,15 @@ class CleanupUtility:
 
     @staticmethod
     def cleanup_all():
-        CleanupUtility.delete_chunks('data/labeled_data/chunks')
-        CleanupUtility.delete_chunks('data/sampled_data/chunks')
-        CleanupUtility.delete_directory_if_empty('data/labeled_data/chunks')
-        CleanupUtility.delete_directory_if_empty('data/sampled_data/chunks')
-
+        labeled_dir = 'data/chunks_labeled'
+        unlabeled_dir = 'data/chunks_unlabeled'
+        
+        CleanupUtility.delete_chunks(labeled_dir)
+        CleanupUtility.delete_chunks(unlabeled_dir)
+        
+        CleanupUtility.delete_directory_if_empty(labeled_dir)
+        CleanupUtility.delete_directory_if_empty(unlabeled_dir)
+        print("[Cleanup] ✅ All temporary chunk directories cleaned up.")
 
 if __name__ == "__main__":
     CleanupUtility.cleanup_all()

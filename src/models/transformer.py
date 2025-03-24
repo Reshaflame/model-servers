@@ -6,6 +6,7 @@ from ray import train as ray_train
 from utils.metrics import Metrics
 import pandas as pd
 import numpy as np
+from utils.model_exporter import export_model
 
 # Add the project root directory to the Python path
 import sys
@@ -26,55 +27,44 @@ class TimeSeriesTransformer(nn.Module):
             dropout=dropout, 
             batch_first=True
         )
-        self.fc = nn.Linear(d_model, 1)  # No sigmoid here
+        self.fc = nn.Linear(d_model, 1)
 
     def forward(self, x):
         seq_len = x.size(1)
         positional_encoding = self.positional_encoding[:, :seq_len, :]
         x = self.input_projection(x) + positional_encoding
         x = self.transformer(x, x)
-        x = self.fc(x[:, -1, :])  # Use the last time step
-        return torch.sigmoid(x)  # Normalize to [0, 1]
-
+        x = self.fc(x[:, -1, :])
+        return torch.sigmoid(x)
 
 
 def prepare_dataset(file_path, sequence_length=10):
     print("Loading preprocessed data...")
     data = pd.read_csv(file_path)
 
-    # Oversample anomalies
     anomaly_data = data[data['label'] == -1]
     augmented_anomaly_data = anomaly_data.sample(n=len(anomaly_data) * 10, replace=True, random_state=42)
     balanced_data = pd.concat([data[data['label'] == 1], augmented_anomaly_data])
 
-    # Group into sequences
     grouped_data = []
     for i in range(0, len(balanced_data) - sequence_length, sequence_length):
         sequence = balanced_data.iloc[i:i + sequence_length].drop(columns=['label']).values
         label = balanced_data.iloc[i + sequence_length - 1]['label']
         grouped_data.append((sequence, label))
 
-    # Normalize features
     features = np.array([seq[0] for seq in grouped_data])
-
-    # Normalize features: zero mean, unit variance
     features_mean = np.mean(features, axis=0)
-    features_std = np.std(features, axis=0) + 1e-6  # Avoid division by zero
+    features_std = np.std(features, axis=0) + 1e-6
     features = (features - features_mean) / features_std
-
-    features = (features - np.mean(features, axis=0)) / (np.std(features, axis=0) + 1e-6)  # Normalize to prevent NaNs
+    features = (features - np.mean(features, axis=0)) / (np.std(features, axis=0) + 1e-6)
     labels = np.array([seq[1] for seq in grouped_data])
-    
+
     print(f"Feature normalization applied: mean={features_mean}, std={features_std}")
 
-    # Convert to tensors
     features = torch.tensor(features, dtype=torch.float32)
     labels = torch.tensor(labels, dtype=torch.float32).unsqueeze(1)
 
-    # Create a PyTorch dataset
     dataset = TensorDataset(features, labels)
-
-    # Split into training and testing datasets
     train_size = int(0.8 * len(dataset))
     test_size = len(dataset) - train_size
     train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
@@ -84,7 +74,6 @@ def prepare_dataset(file_path, sequence_length=10):
 
 
 def train_transformer(config, train_loader, val_loader, input_size):
-    # Create model with hyperparameters from Ray Tune
     model = TimeSeriesTransformer(
         input_size=input_size,
         d_model=config["d_model"],
@@ -94,14 +83,12 @@ def train_transformer(config, train_loader, val_loader, input_size):
         dropout=config["dropout"]
     ).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
 
-    # Optimizer & scheduler
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device))
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
-    # Init weights
     def init_weights(m):
         if isinstance(m, (nn.Linear, nn.Conv1d)):
             nn.init.xavier_uniform_(m.weight)
@@ -109,8 +96,7 @@ def train_transformer(config, train_loader, val_loader, input_size):
                 nn.init.zeros_(m.bias)
     model.apply(init_weights)
 
-    # Train loop
-    for epoch in range(5):  # Keep epochs low for dev
+    for epoch in range(5):
         model.train()
         for batch_features, batch_labels in train_loader:
             batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
@@ -122,7 +108,8 @@ def train_transformer(config, train_loader, val_loader, input_size):
             optimizer.step()
         scheduler.step()
 
-    # Eval loop
+    export_model(model, "/app/models/transformer_trained_model.pth")
+
     model.eval()
     metrics = Metrics()
     y_true, y_pred = [], []
@@ -142,10 +129,7 @@ def train_transformer(config, train_loader, val_loader, input_size):
     y_pred = np.array(y_pred).flatten()
     metrics_dict = metrics.compute_standard_metrics(y_true, y_pred)
     metrics_dict["val_loss"] = val_loss
-
-    # Report metrics to Ray Tune
     ray_train.report(metrics_dict)
-
 
 
 def evaluate_transformer(model, test_loader, device):
@@ -161,12 +145,7 @@ def evaluate_transformer(model, test_loader, device):
 
     y_true = np.concatenate(y_true)
     y_pred = np.concatenate(y_pred)
-    results = metrics.compute_all(
-        y_true,
-        y_pred,
-        # anomaly_ranges=your_gt_ranges,  # Optional for TaPR if you can pass intervals
-        # pred_ranges=your_predicted_ranges  # Optional
-    )
+    results = metrics.compute_all(y_true, y_pred)
     print("Metrics:", results)
     accuracy = (y_true == y_pred).mean()
     print(f"Evaluation Accuracy: {accuracy:.4f}")
@@ -176,21 +155,15 @@ if __name__ == "__main__":
     labeled_data_path = 'data/labeled_data/labeled_auth.csv'
     device = GPUUtils.get_device()
 
-    # Load and prepare the dataset
     train_dataset, test_dataset = prepare_dataset(labeled_data_path, sequence_length=10)
+    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
 
-    # Create DataLoaders
-    batch_size = 64
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
-    # Define model, criterion, and optimizer
-    input_size = len(train_dataset[0][0][0])  # Number of features
+    input_size = len(train_dataset[0][0][0])
     model = TimeSeriesTransformer(input_size).to(device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device))
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)  # Step decay every 5 epochs
-
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
 
     def init_weights(m):
         if isinstance(m, (nn.Linear, nn.Conv1d)):
@@ -204,10 +177,17 @@ if __name__ == "__main__":
 
     model.apply(init_weights)
 
+    # Train the model manually
+    for epoch in range(5):
+        model.train()
+        for batch_features, batch_labels in train_loader:
+            batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
+            optimizer.zero_grad()
+            outputs = model(batch_features)
+            loss = criterion(outputs, batch_labels)
+            loss.backward()
+            optimizer.step()
+        scheduler.step()
 
-
-    # Train the model
-    train_transformer(model, train_loader, criterion, optimizer, device, epochs=10, scheduler=scheduler)
-
-    # Evaluate the model
+    export_model(model, "/app/models/transformer_manual_test.pth")
     evaluate_transformer(model, test_loader, device)
