@@ -1,13 +1,14 @@
 # src/pipeline/tst_pipeline.py
 
 from utils.tuning import RayTuner
-from models.transformer import TimeSeriesTransformer, prepare_dataset, train_transformer
+from models.transformer import TimeSeriesTransformer, train_transformer
 from preprocess.labeledPreprocess import preprocess_labeled_data_with_matching_parallel
+from utils.SequenceChunkedDataset import SequenceChunkedDataset
 from utils.model_exporter import export_model
 from utils.evaluator import evaluate_and_export
-from torch.utils.data import DataLoader
 from ray import tune
 import torch
+
 
 def run_tst_pipeline(preprocess=False):
     if preprocess:
@@ -20,16 +21,19 @@ def run_tst_pipeline(preprocess=False):
     else:
         print("[Pipeline] Skipping preprocessing. Using existing labeled dataset.")
 
-    labeled_data_path = 'data/labeled_data/labeled_auth.csv'
-    train_dataset, val_dataset = prepare_dataset(labeled_data_path, sequence_length=10)
+    # ✅ Initialize sequence-aware chunked dataset loader
+    chunk_dir = "data/labeled_data/chunks"
+    sequence_chunks = SequenceChunkedDataset(
+        chunk_dir=chunk_dir,
+        sequence_length=10,
+        label_column='label',
+        batch_size=128,
+        shuffle_files=True,
+        binary_labels=True,
+        device='cuda' if torch.cuda.is_available() else 'cpu'
+    )
 
-    # for Dev environment:
-    # train_loader = DataLoader(train_dataset, batch_size=32)
-    # val_loader = DataLoader(val_dataset, batch_size=32)
-
-    # for Runpod environment:
-    train_loader = DataLoader(train_dataset, batch_size=128)
-    val_loader = DataLoader(val_dataset, batch_size=128)
+    input_size = sequence_chunks.input_size
 
     param_space = {
         "lr": tune.loguniform(1e-4, 1e-2),
@@ -43,43 +47,43 @@ def run_tst_pipeline(preprocess=False):
     def train_func(config):
         return train_transformer(
             config=config,
-            train_loader=train_loader,
-            val_loader=val_loader,
-            input_size=train_dataset[0][0].shape[1]
+            train_loader=sequence_chunks.train_loader(),
+            val_loader=sequence_chunks.val_loader(),
+            input_size=input_size
         )
 
     tuner = RayTuner(train_func, param_space, num_samples=3, max_epochs=5)
     best_config = tuner.optimize()
     print(f"[Ray Tune] Best hyperparameters: {best_config}")
 
+    device = sequence_chunks.device
     model = TimeSeriesTransformer(
-        input_size=train_dataset[0][0].shape[1],
+        input_size=input_size,
         d_model=best_config["d_model"],
         nhead=best_config["nhead"],
         num_encoder_layers=best_config["num_encoder_layers"],
         dim_feedforward=best_config["dim_feedforward"],
         dropout=best_config["dropout"]
-    ).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+    ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=best_config["lr"])
     criterion = torch.nn.BCEWithLogitsLoss()
 
     for epoch in range(5):
         model.train()
-        for batch_features, batch_labels in train_loader:
-            batch_features, batch_labels = batch_features.to(model.device), batch_labels.to(model.device)
+        for batch_features, batch_labels in sequence_chunks.train_loader():
             optimizer.zero_grad()
             outputs = model(batch_features)
             loss = criterion(outputs, batch_labels)
             loss.backward()
             optimizer.step()
 
-    # Define device
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Combine train + val into a single dataset for ensemble prediction output
-    full_dataset = torch.utils.data.ConcatDataset([train_dataset, val_dataset])
-
     export_model(model, "/app/models/transformer_trained_model.pth")
 
-    evaluate_and_export(model, full_dataset, model_name="transformer", device=device)
+    evaluate_and_export(
+        model,
+        sequence_chunks.full_loader(),
+        model_name="transformer",
+        device=device,
+        export_ground_truth=True
+    )
