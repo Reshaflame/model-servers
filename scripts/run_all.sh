@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 cd /app
@@ -9,9 +10,9 @@ echo "[Launcher] Starting end-to-end pipeline..."
 bash scripts/download_datasets.sh
 
 # Step 2: Split dataset into chunks (only if chunks don't exist)
-if [ ! -d "data/labeled_data/chunks" ]; then
+if [ ! -d "data/shared_chunks" ]; then
     echo "[Step 0] Splitting large dataset into chunks..."
-    python -c "from utils.datachunker import DataChunker; DataChunker('data/auth.txt.gz', output_dir='data/labeled_data/chunks').chunk_and_save()"
+    python -c "from utils.datachunker import DataChunker; DataChunker('data/auth.txt.gz', output_dir='data/shared_chunks').chunk_and_save()"
 else
     echo "[Step 0] Skipping dataset split. Chunks already exist."
 fi

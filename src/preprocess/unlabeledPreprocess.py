@@ -1,7 +1,6 @@
 import os
 import pandas as pd
 import torch
-from utils.datachunker import DataChunker
 
 try:
     import cudf
@@ -37,19 +36,12 @@ def preprocess_chunk(chunk_path, all_categories, output_dir):
     chunk.to_csv(chunk_output, index=False)
     print(f"✅ Saved preprocessed chunk to {chunk_output}")
 
-def preprocess_auth_data(file_path, chunk_size=500_000):
-    columns = [
-        "time", "src_user", "dst_user", "src_comp", "dst_comp",
-        "auth_type", "logon_type", "auth_orientation", "success"
-    ]
+def preprocess_auth_data(chunk_dir='data/shared_chunks'):
     categorical_columns = ['auth_type', 'logon_type', 'auth_orientation', 'success']
 
-    # Step 1: Chunk raw dataset
-    chunk_dir = 'data/chunks_unlabeled'
-    chunker = DataChunker(file_path, output_dir=chunk_dir, chunk_size=chunk_size)
-    chunk_paths = chunker.chunk_and_save()
+    chunk_paths = sorted([os.path.join(chunk_dir, f) for f in os.listdir(chunk_dir) if f.endswith(".csv")])
 
-    # Step 2: Extract unique categories from all chunks
+    # Step 1: Extract unique categories from all chunks
     all_categories = {col: set() for col in categorical_columns}
     for chunk_path in chunk_paths:
         chunk_df = pd.read_csv(chunk_path)
@@ -60,13 +52,13 @@ def preprocess_auth_data(file_path, chunk_size=500_000):
     for col, cats in all_categories.items():
         print(f"{col}: {cats}")
 
-    # Step 3: Preprocess each chunk individually
+    # Step 2: Preprocess each chunk individually
     preprocessed_dir = "data/preprocessed_unlabeled/chunks"
     os.makedirs(preprocessed_dir, exist_ok=True)
     for chunk_path in chunk_paths:
         preprocess_chunk(chunk_path, all_categories, preprocessed_dir)
 
-    # Step 4: Merge all preprocessed chunks into a final CSV
+    # Step 3: Merge all preprocessed chunks into a final CSV
     print("[Preprocess] Merging preprocessed chunks...")
     merged_csv = "data/preprocessed_unlabeled/auth_preprocessed.csv"
     with open(merged_csv, "w") as outfile:
@@ -78,7 +70,6 @@ def preprocess_auth_data(file_path, chunk_size=500_000):
     print(f"✅ Merged dataset saved to {merged_csv}")
 
 if __name__ == "__main__":
-    print("[Preprocess] Starting unlabeled preprocessing with chunking...")
-    auth_file_path = 'data/auth.txt.gz'
-    preprocess_auth_data(auth_file_path)
+    print("[Preprocess] Starting unlabeled preprocessing using shared chunks...")
+    preprocess_auth_data()
     print("[Preprocess] Unlabeled preprocessing completed.")

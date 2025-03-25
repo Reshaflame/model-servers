@@ -1,3 +1,4 @@
+
 import os
 import gzip
 import pandas as pd
@@ -33,7 +34,7 @@ if __name__ == "__main__":
     # Example usage for manual test
     chunker = DataChunker(
         input_file="data/auth.txt.gz",
-        output_dir="data/chunks/auth_chunks/",
+        output_dir="data/shared_chunks",
         chunk_size=500_000
     )
     chunker.chunk_and_save()
