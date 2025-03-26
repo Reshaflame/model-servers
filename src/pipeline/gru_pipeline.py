@@ -4,7 +4,7 @@ from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
 from utils.evaluator import evaluate_and_export
 from utils.model_exporter import export_model
 from utils.chunked_dataset import ChunkedCSVDataset
-from torch.utils.data import DataLoader
+from utils.constants import CHUNKS_LABELED_PATH
 import torch
 from ray import tune
 
@@ -18,7 +18,7 @@ def run_gru_pipeline(preprocess=False):
         print("[Pipeline] Skipping preprocessing. Using existing labeled dataset.")
 
     # ✅ Use chunked dataset instead of loading all data into memory
-    chunk_dir = "data/labeled_data/chunks"
+    chunk_dir = CHUNKS_LABELED_PATH
     chunk_dataset = ChunkedCSVDataset(
         chunk_dir=chunk_dir,
         label_column='label',

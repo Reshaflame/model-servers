@@ -1,7 +1,6 @@
 # src/models/isolation_forest.py
+
 from sklearn.ensemble import IsolationForest
-from skopt import gp_minimize
-from skopt.space import Real, Integer
 import numpy as np
 from utils.metrics import Metrics
 

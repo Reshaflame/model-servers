@@ -1,17 +1,11 @@
+# src/models/transformer.py
+
 import torch
 import torch.nn as nn
-import os
-from torch.utils.data import DataLoader, TensorDataset, random_split
 from ray import train as ray_train
-from utils.metrics import Metrics
-import pandas as pd
 import numpy as np
 from utils.model_exporter import export_model
-
-# Add the project root directory to the Python path
-import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-from src.utils.gpu_utils import GPUUtils
+from utils.metrics import Metrics
 
 
 class TimeSeriesTransformer(nn.Module):
@@ -20,11 +14,11 @@ class TimeSeriesTransformer(nn.Module):
         self.input_projection = nn.Linear(input_size, d_model)
         self.positional_encoding = nn.Parameter(torch.randn(1, 1000, d_model))  # Fixed length
         self.transformer = nn.Transformer(
-            d_model=d_model, 
-            nhead=nhead, 
-            num_encoder_layers=num_encoder_layers, 
-            dim_feedforward=dim_feedforward, 
-            dropout=dropout, 
+            d_model=d_model,
+            nhead=nhead,
+            num_encoder_layers=num_encoder_layers,
+            dim_feedforward=dim_feedforward,
+            dropout=dropout,
             batch_first=True
         )
         self.fc = nn.Linear(d_model, 1)
@@ -38,42 +32,8 @@ class TimeSeriesTransformer(nn.Module):
         return torch.sigmoid(x)
 
 
-def prepare_dataset(file_path, sequence_length=10):
-    print("Loading preprocessed data...")
-    data = pd.read_csv(file_path)
-
-    anomaly_data = data[data['label'] == -1]
-    augmented_anomaly_data = anomaly_data.sample(n=len(anomaly_data) * 10, replace=True, random_state=42)
-    balanced_data = pd.concat([data[data['label'] == 1], augmented_anomaly_data])
-
-    grouped_data = []
-    for i in range(0, len(balanced_data) - sequence_length, sequence_length):
-        sequence = balanced_data.iloc[i:i + sequence_length].drop(columns=['label']).values
-        label = balanced_data.iloc[i + sequence_length - 1]['label']
-        grouped_data.append((sequence, label))
-
-    features = np.array([seq[0] for seq in grouped_data])
-    features_mean = np.mean(features, axis=0)
-    features_std = np.std(features, axis=0) + 1e-6
-    features = (features - features_mean) / features_std
-    features = (features - np.mean(features, axis=0)) / (np.std(features, axis=0) + 1e-6)
-    labels = np.array([seq[1] for seq in grouped_data])
-
-    print(f"Feature normalization applied: mean={features_mean}, std={features_std}")
-
-    features = torch.tensor(features, dtype=torch.float32)
-    labels = torch.tensor(labels, dtype=torch.float32).unsqueeze(1)
-
-    dataset = TensorDataset(features, labels)
-    train_size = int(0.8 * len(dataset))
-    test_size = len(dataset) - train_size
-    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
-
-    print(f"Dataset prepared: {len(train_dataset)} training sequences, {len(test_dataset)} testing sequences")
-    return train_dataset, test_dataset
-
-
 def train_transformer(config, train_loader, val_loader, input_size):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = TimeSeriesTransformer(
         input_size=input_size,
         d_model=config["d_model"],
@@ -81,10 +41,8 @@ def train_transformer(config, train_loader, val_loader, input_size):
         num_encoder_layers=config["num_encoder_layers"],
         dim_feedforward=config["dim_feedforward"],
         dropout=config["dropout"]
-    ).to(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+    ).to(device)
 
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
     criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device))
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
@@ -94,6 +52,7 @@ def train_transformer(config, train_loader, val_loader, input_size):
             nn.init.xavier_uniform_(m.weight)
             if m.bias is not None:
                 nn.init.zeros_(m.bias)
+
     model.apply(init_weights)
 
     for epoch in range(5):
@@ -149,45 +108,3 @@ def evaluate_transformer(model, test_loader, device):
     print("Metrics:", results)
     accuracy = (y_true == y_pred).mean()
     print(f"Evaluation Accuracy: {accuracy:.4f}")
-
-
-if __name__ == "__main__":
-    labeled_data_path = 'data/labeled_data/labeled_auth.csv'
-    device = GPUUtils.get_device()
-
-    train_dataset, test_dataset = prepare_dataset(labeled_data_path, sequence_length=10)
-    train_loader = DataLoader(train_dataset, batch_size=64, shuffle=True)
-    test_loader = DataLoader(test_dataset, batch_size=64, shuffle=False)
-
-    input_size = len(train_dataset[0][0][0])
-    model = TimeSeriesTransformer(input_size).to(device)
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device))
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
-
-    def init_weights(m):
-        if isinstance(m, (nn.Linear, nn.Conv1d)):
-            nn.init.xavier_uniform_(m.weight)
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
-        elif isinstance(m, nn.Transformer):
-            for p in m.parameters():
-                if p.dim() > 1:
-                    nn.init.xavier_uniform_(p)
-
-    model.apply(init_weights)
-
-    # Train the model manually
-    for epoch in range(5):
-        model.train()
-        for batch_features, batch_labels in train_loader:
-            batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
-            optimizer.zero_grad()
-            outputs = model(batch_features)
-            loss = criterion(outputs, batch_labels)
-            loss.backward()
-            optimizer.step()
-        scheduler.step()
-
-    export_model(model, "/app/models/transformer_manual_test.pth")
-    evaluate_transformer(model, test_loader, device)

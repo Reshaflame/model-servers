@@ -6,6 +6,7 @@ from skopt.space import Real, Integer
 from models.isolation_forest import IsolationForestModel
 from preprocess.unlabeledPreprocess import preprocess_auth_data
 from utils.metrics import Metrics
+from utils.constants import CHUNKS_UNLABELED_PATH
 import numpy as np
 import os
 import torch
@@ -20,7 +21,7 @@ def run_iso_pipeline(preprocess=True, raw_data_path='data/auth.txt.gz', sample_f
         print("[Pipeline] Skipping preprocessing. Using existing chunked CSVs.")
 
     # Use disk-based chunk loader for large-scale inference
-    chunk_dir = "data/preprocessed_unlabeled/chunks"
+    chunk_dir = CHUNKS_UNLABELED_PATH
     chunk_dataset = ChunkedCSVDataset(
         chunk_dir=chunk_dir,
         label_column=None,

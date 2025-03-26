@@ -4,6 +4,7 @@ from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
 from utils.model_exporter import export_model
 from utils.evaluator import evaluate_and_export
 from utils.SequenceChunkedDataset import SequenceChunkedDataset
+from utils.constants import CHUNKS_LABELED_PATH
 from ray import tune
 import torch
 
@@ -18,7 +19,7 @@ def run_lstm_pipeline(preprocess=False):
 
     # ✅ Load chunked dataset with sequence support
     chunk_dataset = SequenceChunkedDataset(
-        chunk_dir='data/labeled_data/chunks',
+        chunk_dir = CHUNKS_LABELED_PATH,
         label_column='label',
         batch_size=256,
         shuffle_files=True,

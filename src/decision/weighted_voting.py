@@ -5,8 +5,6 @@ import json
 from pathlib import Path
 from skopt import gp_minimize
 from utils.metrics import Metrics
-import pandas as pd
-import os
 
 class WeightedVoting:
     def __init__(self, num_models, weight_file="/app/models/ensemble_weights.json"):
@@ -45,29 +43,29 @@ class WeightedVoting:
         print(f"✅ Optimized Weights: {self.weights}")
 
 
-# =======================
-# ENTRYPOINT
-# =======================
+# # =======================
+# # ENTRYPOINT
+# # =======================
 
-if __name__ == "__main__":
-    preds_dir = "/app/models/preds/"
-    labeled_csv = "/app/data/labeled_data/labeled_auth.csv"
+# if __name__ == "__main__":
+#     preds_dir = "/app/models/preds/"
+#     labeled_csv = "/app/data/labeled_data/labeled_auth.csv"
     
-    # 1. Load ground truth
-    df = pd.read_csv(labeled_csv)
-    y_true = np.where(df['label'].values == -1, 0, 1)
+#     # 1. Load ground truth
+#     df = pd.read_csv(labeled_csv)
+#     y_true = np.where(df['label'].values == -1, 0, 1)
 
-    # 2. Load model predictions (assuming all models dumped their outputs here)
-    model_preds = []
-    model_names = ["gru", "lstm", "transformer", "iso"]
+#     # 2. Load model predictions (assuming all models dumped their outputs here)
+#     model_preds = []
+#     model_names = ["gru", "lstm", "transformer", "iso"]
 
-    for model in model_names:
-        path = os.path.join(preds_dir, f"{model}_preds.npy")
-        preds = np.load(path)
-        model_preds.append(preds)
+#     for model in model_names:
+#         path = os.path.join(preds_dir, f"{model}_preds.npy")
+#         preds = np.load(path)
+#         model_preds.append(preds)
 
-    # 3. Train the ensemble
-    print(f"Loaded predictions from: {model_names}")
-    ensemble = WeightedVoting(num_models=len(model_preds))
-    ensemble.optimize_weights(model_preds, y_true)
-    print(f"✅ Ensemble weights saved to {ensemble.weight_file}")
+#     # 3. Train the ensemble
+#     print(f"Loaded predictions from: {model_names}")
+#     ensemble = WeightedVoting(num_models=len(model_preds))
+#     ensemble.optimize_weights(model_preds, y_true)
+#     print(f"✅ Ensemble weights saved to {ensemble.weight_file}")

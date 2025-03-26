@@ -6,6 +6,7 @@ from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
 from utils.SequenceChunkedDataset import SequenceChunkedDataset
 from utils.model_exporter import export_model
 from utils.evaluator import evaluate_and_export
+from utils.constants import CHUNKS_LABELED_PATH
 from ray import tune
 import torch
 
@@ -19,7 +20,7 @@ def run_tst_pipeline(preprocess=False):
         print("[Pipeline] Skipping preprocessing. Using existing labeled dataset.")
 
     # ✅ Initialize sequence-aware chunked dataset loader
-    chunk_dir = "data/labeled_data/chunks"
+    chunk_dir = CHUNKS_LABELED_PATH
     sequence_chunks = SequenceChunkedDataset(
         chunk_dir=chunk_dir,
         sequence_length=10,
