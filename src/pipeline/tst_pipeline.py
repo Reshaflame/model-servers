@@ -2,7 +2,7 @@
 
 from utils.tuning import RayTuner
 from models.transformer import TimeSeriesTransformer, train_transformer
-from preprocess.labeledPreprocess import preprocess_labeled_data_with_matching_parallel
+from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
 from utils.SequenceChunkedDataset import SequenceChunkedDataset
 from utils.model_exporter import export_model
 from utils.evaluator import evaluate_and_export
@@ -13,10 +13,7 @@ import torch
 def run_tst_pipeline(preprocess=False):
     if preprocess:
         print("[Pipeline] Running preprocessing...")
-        preprocess_labeled_data_with_matching_parallel(
-            auth_file='data/auth.txt.gz',
-            redteam_file='data/redteam.txt.gz'
-        )
+        preprocess_labeled_data_chunked(redteam_file='data/redteam.txt.gz')
         print("[Pipeline] Preprocessing completed.")
     else:
         print("[Pipeline] Skipping preprocessing. Using existing labeled dataset.")

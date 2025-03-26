@@ -1,6 +1,6 @@
 from utils.tuning import RayTuner
 from models.gru import GRUAnomalyDetector, train_model
-from preprocess.labeledPreprocess import preprocess_labeled_data_with_matching_parallel
+from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
 from utils.evaluator import evaluate_and_export
 from utils.model_exporter import export_model
 from utils.chunked_dataset import ChunkedCSVDataset
@@ -12,10 +12,7 @@ from ray import tune
 def run_gru_pipeline(preprocess=False):
     if preprocess:
         print("[Pipeline] Running preprocessing...")
-        preprocess_labeled_data_with_matching_parallel(
-            auth_file='data/auth.txt.gz',
-            redteam_file='data/redteam.txt.gz'
-        )
+        preprocess_labeled_data_chunked(redteam_file='data/redteam.txt.gz')
         print("[Pipeline] Preprocessing completed.")
     else:
         print("[Pipeline] Skipping preprocessing. Using existing labeled dataset.")
