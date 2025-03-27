@@ -33,7 +33,7 @@ class DataChunker:
 if __name__ == "__main__":
     # Example usage for manual test
     chunker = DataChunker(
-        input_file="data/auth.txt.gz",
+        input_file="data/auth_quarter_01.txt.gz",
         output_dir="data/shared_chunks",
         chunk_size=500_000
     )

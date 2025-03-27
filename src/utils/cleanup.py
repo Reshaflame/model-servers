@@ -37,8 +37,8 @@ class CleanupUtility:
     # --------------------------
     @staticmethod
     def cleanup_raw_auth():
-        CleanupUtility.delete_file("data/auth.txt.gz")
-        print("[Cleanup] ✅ Removed raw auth.txt.gz after chunking.")
+        CleanupUtility.delete_file("data/auth_quarter_01.txt.gz")
+        print("[Cleanup] ✅ Removed raw auth_quarter_01.txt.gz after chunking.")
 
     # ---------------------------------------------
     # ✅ Step 2: Clean raw chunks after preprocessing

@@ -12,7 +12,7 @@ import os
 import torch
 from utils.chunked_dataset import ChunkedCSVDataset
 
-def run_iso_pipeline(preprocess=True, raw_data_path='data/auth.txt.gz', sample_fraction=0.01):
+def run_iso_pipeline(preprocess=True, raw_data_path='data/auth_quarter_01.txt.gz', sample_fraction=0.01):
     if preprocess:
         print("[Pipeline] Starting preprocessing...")
         preprocess_auth_data(file_path=raw_data_path, sample_fraction=sample_fraction)
