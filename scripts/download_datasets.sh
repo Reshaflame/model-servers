@@ -3,20 +3,20 @@
 mkdir -p data
 
 # Check and download auth.txt.gz if missing
-# if [ ! -f data/auth.txt.gz ]; then
-#     echo "[Downloader] Downloading auth.txt.gz..."
-#     gdown --id 1ltgSaY4Am1mX6wwpKyOgGxL9XgTBUrm1 -O data/auth.txt.gz
-# else
-#     echo "[Downloader] auth.txt.gz already exists, skipping download."
-# fi
+if [ ! -f data/auth.txt.gz ]; then
+    echo "[Downloader] Downloading auth.txt.gz..."
+    gdown --id 1ltgSaY4Am1mX6wwpKyOgGxL9XgTBUrm1 -O data/auth.txt.gz
+else
+    echo "[Downloader] auth.txt.gz already exists, skipping download."
+fi
 
 # Check and download auth_quarter_01.txt.gz if missing
-if [ ! -f data/auth_quarter_01.txt.gz ]; then
-    echo "[Downloader] Downloading auth_01.txt.gz..."
-    gdown --id 1u6uqEiyaRBbntdlkBn749lsIpSazwA0w -O data/auth_quarter_01.txt.gz
-else
-    echo "[Downloader] auth_quarter_01.txt.gz already exists, skipping download."
-fi
+# if [ ! -f data/auth_quarter_01.txt.gz ]; then
+#     echo "[Downloader] Downloading auth_01.txt.gz..."
+#     gdown --id 1u6uqEiyaRBbntdlkBn749lsIpSazwA0w -O data/auth_quarter_01.txt.gz
+# else
+#     echo "[Downloader] auth_quarter_01.txt.gz already exists, skipping download."
+# fi
 
 # Check and download redteam.txt.gz if missing
 if [ ! -f data/redteam.txt.gz ]; then

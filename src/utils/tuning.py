@@ -1,8 +1,26 @@
 # utils/tuning.py
 
 from skopt import gp_minimize
+import json
+import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
+
+def manual_gru_search(train_func, param_grid):
+    best_score = -float("inf")
+    best_config = None
+
+    for config in param_grid:
+        print(f"\n🚀 Trying config: {config}")
+        score = train_func(config)
+
+        print(f"🔎 F1 Score: {score}")
+        if score > best_score:
+            best_score = score
+            best_config = config
+
+    print(f"\n✅ Best Config: {best_config} with F1 = {best_score}")
+    return best_config
 
 class SkoptTuner:
     def __init__(self, model_class, metric_func, space):
@@ -30,18 +48,23 @@ class RayTuner:
         self.max_epochs = max_epochs
 
     def optimize(self):
-        # ASHA Scheduler for production
+        # ✅ Manual Ray init (for pods or Jupyter)
+        if not ray.is_initialized():
+            ray.init(
+                num_cpus=2,
+                num_gpus=1,
+                include_dashboard=False,
+                _temp_dir="/tmp/ray",
+                ignore_reinit_error=True
+            )
+
+
+        # ASHA scheduler (aggressive early stopping)
         scheduler = ASHAScheduler(
-            metric="F1",  # Can also switch to "val_loss" or "accuracy" if needed
+            metric="F1",  # You can change this to val_loss or accuracy
             mode="max",
-
-            # For DEV environment:
-            # grace_period=1,         # minimum epochs before stopping
-            # reduction_factor=2      # aggressiveness of pruning
-
-            # For Runpod environment:
-            grace_period=3,         # minimum epochs before stopping
-            reduction_factor=2      # aggressiveness of pruning
+            grace_period=3,
+            reduction_factor=2
         )
 
         analysis = tune.run(
@@ -49,14 +72,8 @@ class RayTuner:
             config=self.param_space,
             num_samples=self.num_samples,
             stop={"training_iteration": self.max_epochs},
-
-            # === LOCAL DEV MODE ===
-            # resources_per_trial={"cpu": 4, "gpu": 1},
-            # max_concurrent_trials=1,
-
-            # === RUNPOD / PRODUCTION MODE ===
-            resources_per_trial={"cpu": 8, "gpu": 1},
-            max_concurrent_trials=4,  # Customize based on your Runpod instance
+            resources_per_trial={"cpu": 2, "gpu": 1},
+            max_concurrent_trials=2,
             scheduler=scheduler
         )
 
