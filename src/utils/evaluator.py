@@ -5,8 +5,13 @@ import os
 # /src/utils/evaluator.py
 def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_truth=False):
     model.eval()
-    y_true = []
-    y_pred = []
+
+    preds_path = f"/app/models/preds/{model_name}_preds.npy"
+    y_true_path = "/app/models/preds/y_true.npy"
+
+    os.makedirs("/app/models/preds", exist_ok=True)
+
+    first_batch = True
 
     with torch.no_grad():
         for batch_features, batch_labels in dataset:  # ← dataset is already iterable
@@ -24,14 +29,23 @@ def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_
 
             outputs = model(batch_features)
             preds = (outputs > 0.5).float().cpu().numpy().flatten()
-            y_pred.extend(preds)
-            y_true.extend(batch_labels.cpu().numpy().flatten())
+            labels = batch_labels.cpu().numpy().flatten()
+            
+            # 🟡 Save or append predictions
+            if first_batch:
+                np.save(preds_path, preds)
+                if export_ground_truth:
+                    np.save(y_true_path, labels)
+                first_batch = False
+            else:
+                with open(preds_path, 'ab') as f:
+                    np.save(f, preds)
+                if export_ground_truth:
+                    with open(y_true_path, 'ab') as f:
+                        np.save(f, labels)
 
-    output_dir = "/app/models/preds"
-    os.makedirs(output_dir, exist_ok=True)
-    np.save(os.path.join(output_dir, f"{model_name}_preds.npy"), np.array(y_pred))
-    print(f"[Evaluator] ✅ Saved {model_name} predictions to {output_dir}/{model_name}_preds.npy")
-
+        
+    print(f"[Evaluator] ✅ Predictions saved to {preds_path}")
+    
     if export_ground_truth:
-        np.save(os.path.join(output_dir, f"y_true.npy"), np.array(y_true))
-        print(f"[Evaluator] ✅ Saved y_true to {output_dir}/y_true.npy")
+        print(f"[Evaluator] ✅ Ground truth saved to {y_true_path}")
