@@ -3,6 +3,7 @@ import numpy as np
 import os
 
 def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_truth=False):
+    print(f"[DEBUG] 🧠 Running evaluate_and_export() from src/utils/evaluator.py for model: {model_name}")
     model.eval()
 
     output_dir = f"/app/models/preds/{model_name}_batches"
