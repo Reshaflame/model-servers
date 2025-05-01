@@ -46,73 +46,29 @@ def run_gru_pipeline(preprocess=False):
 
     # ✅ Step 4: Wrap the training function
     def train_func(config):
-        model = GRUAnomalyDetector(
+        return train_model(
+            config=config,
+            train_loader=chunk_dataset.train_loader(),
+            val_loader=chunk_dataset.val_loader(),
             input_size=input_size,
-            hidden_size=config["hidden_size"],
-            num_layers=config["num_layers"]
-        ).to(chunk_dataset.device)
-
-        optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
-        criterion = torch.nn.BCELoss()
-
-        model.train()
-        for batch_features, batch_labels in chunk_dataset.train_loader():
-            if not torch.is_tensor(batch_features):
-                batch_features = torch.tensor(batch_features, dtype=torch.float32)
-            if not torch.is_tensor(batch_labels):
-                batch_labels = torch.tensor(batch_labels, dtype=torch.float32)
-
-            batch_features = batch_features.to(chunk_dataset.device).unsqueeze(1)
-            batch_labels = batch_labels.to(chunk_dataset.device).unsqueeze(1)
-
-            optimizer.zero_grad()
-            outputs = model(batch_features)
-            loss = criterion(outputs, batch_labels)
-            loss.backward()
-            optimizer.step()
-
-        # ✅ Lightweight F1 using just the first validation chunk
-        metrics = Metrics()
-        model.eval()
-        for features, labels in chunk_dataset.val_loader():
-            features = torch.tensor(features, dtype=torch.float32).to(chunk_dataset.device).unsqueeze(1)
-            labels = torch.tensor(labels, dtype=torch.float32).to(chunk_dataset.device).unsqueeze(1)
-            with torch.no_grad():
-                preds = (model(features) > 0.5).float()
-            f1 = metrics.compute_standard_metrics(labels.cpu().numpy(), preds.cpu().numpy())["F1"]
-            return f1  # only evaluate first chunk
+            return_best_f1=True
+            )
 
     # ✅ Step 5: Search for best config manually
     best_config = manual_gru_search(train_func, param_grid)
     print(f"[Manual Tune] ✅ Best hyperparameters: {best_config}")
 
     # ✅ Step 6: Final training using best config
-    model = GRUAnomalyDetector(
+    model = train_model(
+        config=best_config,
+        train_loader=chunk_dataset.train_loader(),
+        val_loader=chunk_dataset.val_loader(),
         input_size=input_size,
-        hidden_size=best_config["hidden_size"],
-        num_layers=best_config["num_layers"]
-    ).to(chunk_dataset.device)
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=best_config["lr"])
-    criterion = torch.nn.BCELoss()
-
-    for batch_features, batch_labels in chunk_dataset.train_loader():
-        if not torch.is_tensor(batch_features):
-            batch_features = torch.tensor(batch_features, dtype=torch.float32)
-        else:
-            batch_features = batch_features.float()
-        if not torch.is_tensor(batch_labels):
-            batch_labels = torch.tensor(batch_labels, dtype=torch.float32)
-        else:
-            batch_labels = batch_labels.float()
-    
-        batch_features = batch_features.to(chunk_dataset.device).unsqueeze(1)
-        batch_labels = batch_labels.to(chunk_dataset.device)
-
+        return_best_f1=False
+    )
 
     # ✅ Step 7: Export & Evaluate
     export_model(model, "/app/models/gru_trained_model.pth")
-
     evaluate_and_export(
         model,
         chunk_dataset.full_loader(),
