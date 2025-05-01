@@ -1,4 +1,3 @@
-from utils.tuning import RayTuner
 from utils.tuning import manual_gru_search
 from models.gru import GRUAnomalyDetector, train_model
 from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
@@ -7,10 +6,10 @@ from utils.model_exporter import export_model
 from utils.chunked_dataset import ChunkedCSVDataset
 from utils.constants import CHUNKS_LABELED_PATH
 from glob import glob
+from utils.metrics import Metrics
 import pandas as pd
 import torch
 import os
-from ray import tune
 
 
 def run_gru_pipeline(preprocess=False):
@@ -47,13 +46,41 @@ def run_gru_pipeline(preprocess=False):
 
     # ✅ Step 4: Wrap the training function
     def train_func(config):
-        return train_model(
-            config=config,
-            train_loader=chunk_dataset.train_loader(),
-            val_loader=chunk_dataset.val_loader(),
+        model = GRUAnomalyDetector(
             input_size=input_size,
-            return_best_f1=True
-        )
+            hidden_size=config["hidden_size"],
+            num_layers=config["num_layers"]
+        ).to(chunk_dataset.device)
+
+        optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
+        criterion = torch.nn.BCELoss()
+
+        model.train()
+        for batch_features, batch_labels in chunk_dataset.train_loader():
+            if not torch.is_tensor(batch_features):
+                batch_features = torch.tensor(batch_features, dtype=torch.float32)
+            if not torch.is_tensor(batch_labels):
+                batch_labels = torch.tensor(batch_labels, dtype=torch.float32)
+
+            batch_features = batch_features.to(chunk_dataset.device).unsqueeze(1)
+            batch_labels = batch_labels.to(chunk_dataset.device).unsqueeze(1)
+
+            optimizer.zero_grad()
+            outputs = model(batch_features)
+            loss = criterion(outputs, batch_labels)
+            loss.backward()
+            optimizer.step()
+
+        # ✅ Lightweight F1 using just the first validation chunk
+        metrics = Metrics()
+        model.eval()
+        for features, labels in chunk_dataset.val_loader():
+            features = torch.tensor(features, dtype=torch.float32).to(chunk_dataset.device).unsqueeze(1)
+            labels = torch.tensor(labels, dtype=torch.float32).to(chunk_dataset.device).unsqueeze(1)
+            with torch.no_grad():
+                preds = (model(features) > 0.5).float()
+            f1 = metrics.compute_standard_metrics(labels.cpu().numpy(), preds.cpu().numpy())["F1"]
+            return f1  # only evaluate first chunk
 
     # ✅ Step 5: Search for best config manually
     best_config = manual_gru_search(train_func, param_grid)
