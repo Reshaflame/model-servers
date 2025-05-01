@@ -36,7 +36,7 @@ def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_
             if export_ground_truth:
                 np.save(os.path.join(output_dir, f"batch_{batch_id:05d}_labels.npy"), labels)
 
-            if batch_id % 100 == 0:
+            if batch_id % 1000 == 0:
                 print(f"[Evaluator] 💾 Saved batch {batch_id}")
 
     print(f"[Evaluator] ✅ Done. Saved {batch_id} batches to: {output_dir}")

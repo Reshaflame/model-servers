@@ -59,7 +59,7 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
 
     for epoch in range(3):
         model.train()
-        print(f"[Epoch {epoch+1}/3] 🔁 Training started...")
+        print(f"[GRU] [Epoch {epoch+1}/3] 🔁 Training started...")
         batch_num = 0
         for batch_features, batch_labels in train_loader:
             batch_num += 1
@@ -67,16 +67,18 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
             batch_labels = batch_labels.clone().detach().float().to(device)
             optimizer.zero_grad()
 
-            # # Before outputs = model(batch_features)
-            # print(f"[Train] batch_features shape: {batch_features.shape}")
-
             outputs = model(batch_features)
-            loss = criterion(outputs, batch_labels.unsqueeze(1))  # 🔥 Match [B, 1] shape
+            loss = criterion(outputs, batch_labels.unsqueeze(1))
             loss.backward()
             optimizer.step()
-            if batch_num % 100 == 0:
-                print(f"   └─ Batch {batch_num}: Loss = {loss.item():.6f}")
-        print(f"[Epoch {epoch+1}] ✅ Done.")
+
+            if batch_num % 1000 == 0:
+                print(f"[GRU]   └─ Batch {batch_num}: Loss = {loss.item():.6f}")
+        print(f"[GRU] [Epoch {epoch+1}] ✅ Done.")
+
+    if not return_best_f1:
+        print("[GRU] ✅ Skipping in-memory evaluation — handled separately by evaluate_and_export.")
+        return model
         
     # === Evaluation after training ===
     if return_best_f1:
