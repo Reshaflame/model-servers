@@ -85,8 +85,8 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
         print("[Eval] 🔍 Running F1 evaluation for tuning (lightweight)...")
         model.eval()
         val_loss = 0
-        total_preds = []
-        total_labels = []
+        tp = fp = fn = 0
+
         batch_id = 0
 
         with torch.no_grad():
@@ -104,17 +104,20 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
                 preds_np = (preds > 0.5).float().cpu().numpy().flatten()
                 labels_np = labels.cpu().numpy().flatten()
 
-                total_preds.extend(preds_np)
-                total_labels.extend(labels_np)
+                tp += np.logical_and(preds_np == 1, labels_np == 1).sum()
+                fp += np.logical_and(preds_np == 1, labels_np == 0).sum()
+                fn += np.logical_and(preds_np == 0, labels_np == 1).sum()
+
 
                 if batch_id % 100 == 0:
                     print(f"   └─ [Eval] Processed {batch_id} batches")
 
         val_loss /= max(1, batch_id)
 
-        precision = precision_score(total_labels, total_preds, zero_division=0)
-        recall = recall_score(total_labels, total_preds, zero_division=0)
-        f1 = f1_score(total_labels, total_preds, zero_division=0)
+        precision = tp / (tp + fp + 1e-8)
+        recall    = tp / (tp + fn + 1e-8)
+        f1        = 2 * precision * recall / (precision + recall + 1e-8)
+
 
         metrics_dict = {
             "precision": precision,
