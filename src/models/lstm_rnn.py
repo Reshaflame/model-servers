@@ -39,7 +39,9 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
         model.train()
         print(f"[LSTM] [Epoch {epoch+1}/3] 🔁 Training started...")
         batch_num = 0
-        for features, labels in train_loader:
+
+        # 🔁 Reset the generator each epoch
+        for features, labels in train_loader():
             batch_num += 1
             features, labels = features.to(device), labels.to(device)
             
@@ -58,17 +60,19 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
     metrics = Metrics()
     y_true, y_pred = [], []
     val_loss = 0
+    batch_id = 0
 
     with torch.no_grad():
-        for features, labels in val_loader:
+        for features, labels in val_loader():
             features, labels = features.to(device), labels.to(device)
             outputs = model(features)
             val_loss += criterion(outputs, labels).item()
+            batch_id += 1
             predictions = (outputs > 0.5).float()
             y_true.extend(labels.cpu().numpy())
             y_pred.extend(predictions.cpu().numpy())
 
-    val_loss /= len(val_loader)
+    val_loss /= max(1, batch_id)
     y_true = np.array(y_true).flatten()
     y_pred = np.array(y_pred).flatten()
     metrics_dict = metrics.compute_standard_metrics(y_true, y_pred)

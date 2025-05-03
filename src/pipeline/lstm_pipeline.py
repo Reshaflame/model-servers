@@ -50,8 +50,8 @@ def run_lstm_pipeline(preprocess=False):
     # Step 2: Final training and export
     model = train_model(
         config=best_config,
-        train_loader=chunk_dataset.train_loader(),
-        val_loader=chunk_dataset.val_loader(),
+        train_loader=chunk_dataset.train_loader,
+        val_loader=chunk_dataset.val_loader,
         input_size=input_size,
         return_best_f1=False
     )
