@@ -1,4 +1,5 @@
 from utils.tuning import manual_gru_search
+import shutil
 from models.gru import GRUAnomalyDetector, train_model
 from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
 from utils.evaluator import evaluate_and_export
@@ -10,6 +11,7 @@ from utils.metrics import Metrics
 import pandas as pd
 import torch
 import os
+import gc
 
 
 def run_gru_pipeline(preprocess=False):
