@@ -1,5 +1,6 @@
 import os
 import pandas as pd
+import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset, random_split
 
@@ -40,19 +41,28 @@ class SequenceChunkedDataset:
 
     def _load_sequences_from_chunk(self, chunk_path):
         df = pd.read_csv(chunk_path)
+        
+        if df[self.feature_columns].select_dtypes(include="object").shape[1] > 0:
+            print(f"[WARNING] ⚠️ Chunk {os.path.basename(chunk_path)} has non-numeric columns. They will be coerced to 0.")
+
         if self.binary_labels:
             df[self.label_column] = (df[self.label_column] != -1).astype(float)
 
-        features = df[self.feature_columns].values
-        labels = df[self.label_column].values
+        features = df[self.feature_columns].apply(pd.to_numeric, errors='coerce').fillna(0.0).values
+        labels = pd.to_numeric(df[self.label_column], errors='coerce').fillna(0.0).values
 
         X_seq, y_seq = [], []
         for i in range(len(features) - self.sequence_length):
             X_seq.append(features[i:i+self.sequence_length])
             y_seq.append(labels[i + self.sequence_length - 1])
 
+        X_seq = np.array(X_seq, dtype=np.float32)
+        y_seq = np.array(y_seq, dtype=np.float32)
+
         X_tensor = torch.tensor(X_seq, dtype=torch.float32, device=self.device)
         y_tensor = torch.tensor(y_seq, dtype=torch.float32, device=self.device).unsqueeze(1)
+
+
 
         dataset = TensorDataset(X_tensor, y_tensor)
         return random_split(
