@@ -23,7 +23,7 @@ class LSTM_RNN_Hybrid(nn.Module):
         return self.sigmoid(out)
 
 
-def train_model(config, train_loader, val_loader, input_size):
+def train_model(config, train_loader, val_loader, input_size, return_best_f1=False):
     model = LSTM_RNN_Hybrid(
         input_size=input_size,
         hidden_size=config["hidden_size"],
@@ -45,8 +45,6 @@ def train_model(config, train_loader, val_loader, input_size):
             loss.backward()
             optimizer.step()
 
-    export_model(model, "/app/models/lstm_rnn_trained_model.pth")
-
     model.eval()
     metrics = Metrics()
     y_true, y_pred = [], []
@@ -66,7 +64,13 @@ def train_model(config, train_loader, val_loader, input_size):
     y_pred = np.array(y_pred).flatten()
     metrics_dict = metrics.compute_standard_metrics(y_true, y_pred)
     metrics_dict["val_loss"] = val_loss
-    ray_train.report(metrics_dict)
+
+    if return_best_f1:
+        return metrics_dict["F1"]
+    else:
+        export_model(model, "/app/models/lstm_rnn_trained_model.pth")
+        return model
+
 
 
 def evaluate_model(model, test_loader, device):

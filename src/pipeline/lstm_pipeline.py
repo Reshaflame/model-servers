@@ -1,11 +1,9 @@
-from utils.tuning import RayTuner
-from models.lstm_rnn import LSTM_RNN_Hybrid, train_model
+from models.lstm_rnn import train_model
 from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
-from utils.model_exporter import export_model
 from utils.evaluator import evaluate_and_export
+from utils.tuning import manual_gru_search
 from utils.SequenceChunkedDataset import SequenceChunkedDataset
 from utils.constants import CHUNKS_LABELED_PATH
-from ray import tune
 import torch
 
 
@@ -19,7 +17,7 @@ def run_lstm_pipeline(preprocess=False):
 
     # ✅ Load chunked dataset with sequence support
     chunk_dataset = SequenceChunkedDataset(
-        chunk_dir = CHUNKS_LABELED_PATH,
+        chunk_dir=CHUNKS_LABELED_PATH,
         label_column='label',
         batch_size=256,
         shuffle_files=True,
@@ -30,45 +28,35 @@ def run_lstm_pipeline(preprocess=False):
 
     input_size = chunk_dataset.input_size
 
-    param_space = {
-        "lr": tune.loguniform(1e-4, 1e-2),
-        "hidden_size": tune.choice([32, 64, 128]),
-        "num_layers": tune.choice([1, 2])
-    }
+    # Step 1: Manual param search
+    param_grid = [
+        {"lr": 0.001, "hidden_size": 64, "num_layers": 1},
+        {"lr": 0.0005, "hidden_size": 128, "num_layers": 2},
+        {"lr": 0.001, "hidden_size": 128, "num_layers": 1}
+    ]
 
     def train_func(config):
         return train_model(
             config=config,
             train_loader=chunk_dataset.train_loader(),
             val_loader=chunk_dataset.val_loader(),
-            input_size=input_size
+            input_size=input_size,
+            return_best_f1=True
         )
 
-    tuner = RayTuner(train_func, param_space, num_samples=4, max_epochs=5)
-    best_config = tuner.optimize()
-    print(f"[Ray Tune] Best hyperparameters: {best_config}")
+    best_config = manual_gru_search(train_func, param_grid)
+    print(f"[Manual Tune] ✅ Best config: {best_config}")
 
-    model = LSTM_RNN_Hybrid(
+    # Step 2: Final training and export
+    model = train_model(
+        config=best_config,
+        train_loader=chunk_dataset.train_loader(),
+        val_loader=chunk_dataset.val_loader(),
         input_size=input_size,
-        hidden_size=best_config["hidden_size"],
-        num_layers=best_config["num_layers"]
-    ).to(chunk_dataset.device)
+        return_best_f1=False
+    )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=best_config["lr"])
-    criterion = torch.nn.BCELoss()
-
-    for epoch in range(5):
-        model.train()
-        for batch_features, batch_labels in chunk_dataset.train_loader():
-            batch_features, batch_labels = batch_features.to(chunk_dataset.device), batch_labels.to(chunk_dataset.device)
-            optimizer.zero_grad()
-            outputs = model(batch_features)
-            loss = criterion(outputs, batch_labels)
-            loss.backward()
-            optimizer.step()
-
-    export_model(model, "/app/models/lstm_rnn_trained_model.pth")
-
+    # Step 3: Evaluation
     evaluate_and_export(
         model,
         chunk_dataset.full_loader(),
