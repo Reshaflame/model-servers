@@ -36,7 +36,10 @@ class SequenceChunkedDataset:
 
         # Detect input size from first chunk
         sample_df = pd.read_csv(self.chunk_paths[0])
-        self.feature_columns = [col for col in sample_df.columns if col != self.label_column]
+        numeric_cols = sample_df.select_dtypes(include=["number"]).columns.tolist()
+        self.feature_columns = [col for col in numeric_cols if col != self.label_column]
+        print(f"[Init] 🧬 Using {len(self.feature_columns)} numeric features: {self.feature_columns[:5]}{'...' if len(self.feature_columns) > 5 else ''}")
+
         self.input_size = len(self.feature_columns)
 
     def _load_sequences_from_chunk(self, chunk_path):
