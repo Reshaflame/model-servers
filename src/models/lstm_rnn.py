@@ -1,6 +1,7 @@
 # src/models/lstm_rnn.py
 
 import torch
+import os
 import torch.nn as nn
 import logging
 import numpy as np
@@ -29,7 +30,25 @@ class LSTM_RNN_Hybrid(nn.Module):
         rnn_out, _ = self.rnn(lstm_out)
         out = self.fc(rnn_out[:, -1, :])  # Use the last time step
         return self.sigmoid(out)
+    
+def save_checkpoint(model, optimizer, epoch, config, path):
+    torch.save({
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "epoch": epoch,
+        "config": config
+    }, path)
+    logging.info(f"[Checkpoint] 💾 Saved checkpoint for epoch {epoch} at: {path}")
 
+def load_checkpoint(model, optimizer, path):
+    if not os.path.exists(path):
+        return 0  # No checkpoint, start from epoch 0
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint["model_state"])
+    if optimizer and "optimizer_state" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state"])
+    logging.info(f"[Checkpoint] 🔁 Resumed from epoch {checkpoint['epoch']}")
+    return checkpoint["epoch"]    
 
 def train_model(config, train_loader, val_loader, input_size, return_best_f1=False):
     model = LSTM_RNN_Hybrid(
@@ -42,8 +61,14 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
     criterion = nn.BCELoss()
+    
+    checkpoint_path = f"/workspace/checkpoints/lstm_lr{config['lr']}_h{config['hidden_size']}_l{config['num_layers']}.pth"
+    start_epoch = 0
 
-    for epoch in range(3):
+    # Try to load from checkpoint
+    start_epoch = load_checkpoint(model, optimizer, checkpoint_path)
+
+    for epoch in range(start_epoch, 3):
         model.train()
         logging.info(f"[LSTM] [Epoch {epoch+1}/3] 🔁 Training started...")
         batch_num = 0
@@ -61,12 +86,17 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
 
             if batch_num % 1000 == 0:
                 logging.info(f"[LSTM]   └─ Batch {batch_num}: Loss = {loss.item():.6f}")
-
+        
         logging.info(f"[LSTM] [Epoch {epoch+1}] ✅ Done.")
+        save_checkpoint(model, optimizer, epoch + 1, config, checkpoint_path)
+
 
     if not return_best_f1:
         logging.info("[LSTM] ✅ Skipping in-memory evaluation — handled separately by evaluate_and_export.")
-        export_model(model, "/app/models/lstm_rnn_trained_model.pth")
+        try:
+            export_model(model, "/app/models/lstm_rnn_trained_model.pth")
+        except Exception as e:
+            logging.error(f"[Export] ❌ Failed to export model: {e}")
         return model
 
     # === Evaluation after training ===
