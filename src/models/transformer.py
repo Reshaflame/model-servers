@@ -80,7 +80,7 @@ def train_transformer(config, train_loader, val_loader, input_size, return_best_
         model.train()
         logging.info(f"[TST] [Epoch {epoch+1}/3] 🔁 Training started...")
         batch_id = 0
-        for features, labels in train_loader():
+        for features, labels in train_loader:
             features, labels = features.to(device), labels.to(device)
             optimizer.zero_grad()
             outputs = model(features)
@@ -106,7 +106,7 @@ def train_transformer(config, train_loader, val_loader, input_size, return_best_
     val_loss, tp, fp, fn, batch_id = 0, 0, 0, 0, 0
 
     with torch.no_grad():
-        for features, labels in val_loader():
+        for features, labels in val_loader:
             batch_id += 1
             features, labels = features.to(device), labels.to(device)
             preds = model(features)
