@@ -1,18 +1,27 @@
 # src/models/transformer.py
 
+import os
 import torch
 import torch.nn as nn
-from ray import train as ray_train
 import numpy as np
+import logging
 from utils.model_exporter import export_model
 from utils.metrics import Metrics
 
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler("/workspace/logs/transformer_training.log"),
+        logging.StreamHandler()
+    ]
+)
 
 class TimeSeriesTransformer(nn.Module):
     def __init__(self, input_size, d_model=64, nhead=4, num_encoder_layers=3, dim_feedforward=256, dropout=0.1):
         super(TimeSeriesTransformer, self).__init__()
         self.input_projection = nn.Linear(input_size, d_model)
-        self.positional_encoding = nn.Parameter(torch.randn(1, 1000, d_model))  # Fixed length
+        self.positional_encoding = nn.Parameter(torch.randn(1, 1000, d_model))
         self.transformer = nn.Transformer(
             d_model=d_model,
             nhead=nhead,
@@ -31,8 +40,27 @@ class TimeSeriesTransformer(nn.Module):
         x = self.fc(x[:, -1, :])
         return torch.sigmoid(x)
 
+def save_checkpoint(model, optimizer, epoch, config, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    torch.save({
+        "model_state": model.state_dict(),
+        "optimizer_state": optimizer.state_dict(),
+        "epoch": epoch,
+        "config": config
+    }, path)
+    logging.info(f"[Checkpoint] 💾 Saved checkpoint for epoch {epoch} at: {path}")
 
-def train_transformer(config, train_loader, val_loader, input_size):
+def load_checkpoint(model, optimizer, path):
+    if not os.path.exists(path):
+        return 0
+    checkpoint = torch.load(path)
+    model.load_state_dict(checkpoint["model_state"])
+    if optimizer and "optimizer_state" in checkpoint:
+        optimizer.load_state_dict(checkpoint["optimizer_state"])
+    logging.info(f"[Checkpoint] 🔁 Resumed from epoch {checkpoint['epoch']}")
+    return checkpoint["epoch"]
+
+def train_transformer(config, train_loader, val_loader, input_size, return_best_f1=False):
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = TimeSeriesTransformer(
         input_size=input_size,
@@ -44,67 +72,65 @@ def train_transformer(config, train_loader, val_loader, input_size):
     ).to(device)
 
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
-    criterion = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([10.0]).to(device))
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+    criterion = nn.BCELoss()
+    checkpoint_path = f"/workspace/checkpoints/tst_lr{config['lr']}_d{config['d_model']}_e{config['num_encoder_layers']}.pth"
+    start_epoch = load_checkpoint(model, optimizer, checkpoint_path)
 
-    def init_weights(m):
-        if isinstance(m, (nn.Linear, nn.Conv1d)):
-            nn.init.xavier_uniform_(m.weight)
-            if m.bias is not None:
-                nn.init.zeros_(m.bias)
-
-    model.apply(init_weights)
-
-    for epoch in range(5):
+    for epoch in range(start_epoch, 3):
         model.train()
-        for batch_features, batch_labels in train_loader:
-            batch_features, batch_labels = batch_features.to(device), batch_labels.to(device)
+        logging.info(f"[TST] [Epoch {epoch+1}/3] 🔁 Training started...")
+        batch_id = 0
+        for features, labels in train_loader():
+            features, labels = features.to(device), labels.to(device)
             optimizer.zero_grad()
-            outputs = model(batch_features)
-            loss = criterion(outputs, batch_labels)
+            outputs = model(features)
+            loss = criterion(outputs, labels)
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
-        scheduler.step()
+            batch_id += 1
+            if batch_id % 500 == 0:
+                logging.info(f"[TST]   └─ Batch {batch_id}: Loss = {loss.item():.6f}")
+        save_checkpoint(model, optimizer, epoch + 1, config, checkpoint_path)
+        logging.info(f"[TST] [Epoch {epoch+1}] ✅ Done.")
 
-    export_model(model, "/app/models/transformer_trained_model.pth")
+    if not return_best_f1:
+        logging.info("[TST] ✅ Skipping in-memory evaluation — handled separately by evaluate_and_export.")
+        export_model(model, "/app/models/transformer_trained_model.pth")
+        return model
 
+    # Lightweight batchwise evaluation to avoid OOM
+    logging.info("[Eval] 🔍 Running F1 evaluation for tuning (lightweight)...")
     model.eval()
-    metrics = Metrics()
-    y_true, y_pred = [], []
-    val_loss = 0
+    criterion = nn.BCELoss()
+    val_loss, tp, fp, fn, batch_id = 0, 0, 0, 0, 0
 
     with torch.no_grad():
-        for features, labels in val_loader:
+        for features, labels in val_loader():
+            batch_id += 1
             features, labels = features.to(device), labels.to(device)
-            outputs = model(features)
-            val_loss += criterion(outputs, labels).item()
-            predictions = (torch.sigmoid(outputs) > 0.5).float()
-            y_true.extend(labels.cpu().numpy())
-            y_pred.extend(predictions.cpu().numpy())
+            preds = model(features)
+            loss = criterion(preds, labels)
+            val_loss += loss.item()
 
-    val_loss /= len(val_loader)
-    y_true = np.array(y_true).flatten()
-    y_pred = np.array(y_pred).flatten()
-    metrics_dict = metrics.compute_standard_metrics(y_true, y_pred)
-    metrics_dict["val_loss"] = val_loss
-    ray_train.report(metrics_dict)
+            preds_np = (preds > 0.5).float().cpu().numpy().flatten()
+            labels_np = labels.cpu().numpy().flatten()
 
+            tp += np.logical_and(preds_np == 1, labels_np == 1).sum()
+            fp += np.logical_and(preds_np == 1, labels_np == 0).sum()
+            fn += np.logical_and(preds_np == 0, labels_np == 1).sum()
 
-def evaluate_transformer(model, test_loader, device):
-    model.eval()
-    metrics = Metrics()
-    y_true, y_pred = [], []
-    with torch.no_grad():
-        for batch_features, batch_labels in test_loader:
-            batch_features = batch_features.to(device)
-            outputs = model(batch_features).cpu()
-            y_pred.extend((torch.sigmoid(outputs) > 0.5).float().numpy())
-            y_true.extend(batch_labels.numpy())
+            if batch_id % 100 == 0:
+                logging.info(f"   └─ [Eval] Processed {batch_id} batches")
 
-    y_true = np.concatenate(y_true)
-    y_pred = np.concatenate(y_pred)
-    results = metrics.compute_all(y_true, y_pred)
-    print("Metrics:", results)
-    accuracy = (y_true == y_pred).mean()
-    print(f"Evaluation Accuracy: {accuracy:.4f}")
+    val_loss /= max(1, batch_id)
+    precision = tp / (tp + fp + 1e-8)
+    recall    = tp / (tp + fn + 1e-8)
+    f1        = 2 * precision * recall / (precision + recall + 1e-8)
+
+    logging.info(f"[Eval] ✅ Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}, Loss: {val_loss:.6f}")
+
+    if return_best_f1:
+        return f1
+    return model
+
