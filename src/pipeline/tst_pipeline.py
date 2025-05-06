@@ -18,68 +18,50 @@ def run_tst_pipeline(preprocess=False):
     else:
         print("[Pipeline] Skipping preprocessing. Using existing labeled dataset.")
 
-    # ✅ Initialize sequence-aware chunked dataset loader
-    chunk_dir = CHUNKS_LABELED_PATH
-    sequence_chunks = SequenceChunkedDataset(
-        chunk_dir=chunk_dir,
-        sequence_length=10,
+    chunk_dataset = SequenceChunkedDataset(
+        chunk_dir=CHUNKS_LABELED_PATH,
         label_column='label',
         batch_size=128,
         shuffle_files=True,
         binary_labels=True,
+        sequence_length=10,
         device='cuda' if torch.cuda.is_available() else 'cpu'
     )
 
-    input_size = sequence_chunks.input_size
+    input_size = chunk_dataset.input_size
 
-    param_grid = {
-        "lr": [1e-3],
-        "d_model": [64],
-        "nhead": [2],
-        "num_encoder_layers": [2],
-        "dim_feedforward": [128],
-        "dropout": [0.1]
-    }
-    
+    # ✅ Step 1: Manual tuning
+    param_grid = [
+        {"lr": 0.001, "d_model": 64, "nhead": 2, "num_encoder_layers": 2, "dim_feedforward": 128, "dropout": 0.1}
+    ]
+
     def train_func(config):
         return train_transformer(
             config=config,
-            train_loader=sequence_chunks.train_loader(),
-            val_loader=sequence_chunks.val_loader(),
-            input_size=input_size
+            train_loader=chunk_dataset.train_loader,
+            val_loader=chunk_dataset.val_loader,
+            input_size=input_size,
+            return_best_f1=True
         )
 
     best_config = manual_gru_search(train_func, param_grid)
-    print(f"[Manual Search] Best hyperparameters: {best_config}")
+    print(f"[Manual Tune] ✅ Best config: {best_config}")
 
-    device = sequence_chunks.device
-    model = TimeSeriesTransformer(
+    # ✅ Step 2: Final training and export
+    model = train_transformer(
+        config=best_config,
+        train_loader=chunk_dataset.train_loader,
+        val_loader=chunk_dataset.val_loader,
         input_size=input_size,
-        d_model=best_config["d_model"],
-        nhead=best_config["nhead"],
-        num_encoder_layers=best_config["num_encoder_layers"],
-        dim_feedforward=best_config["dim_feedforward"],
-        dropout=best_config["dropout"]
-    ).to(device)
+        return_best_f1=False
+    )
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=best_config["lr"])
-    criterion = torch.nn.BCEWithLogitsLoss()
-
-    for epoch in range(5):
-        model.train()
-        for batch_features, batch_labels in sequence_chunks.train_loader():
-            optimizer.zero_grad()
-            outputs = model(batch_features)
-            loss = criterion(outputs, batch_labels)
-            loss.backward()
-            optimizer.step()
-
-    export_model(model, "/app/models/transformer_trained_model.pth")
-
+    # ✅ Step 3: Final evaluation
     evaluate_and_export(
         model,
-        sequence_chunks.full_loader(),
+        chunk_dataset.full_loader(),
         model_name="transformer",
-        device=device,
+        device=chunk_dataset.device,
         export_ground_truth=True
     )
+
