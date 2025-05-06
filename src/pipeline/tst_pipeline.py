@@ -1,13 +1,12 @@
 # src/pipeline/tst_pipeline.py
 
-from utils.tuning import RayTuner
+from utils.tuning import manual_gru_search
 from models.transformer import TimeSeriesTransformer, train_transformer
 from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
 from utils.SequenceChunkedDataset import SequenceChunkedDataset
 from utils.model_exporter import export_model
 from utils.evaluator import evaluate_and_export
 from utils.constants import CHUNKS_LABELED_PATH
-from ray import tune
 import torch
 
 
@@ -33,13 +32,13 @@ def run_tst_pipeline(preprocess=False):
 
     input_size = sequence_chunks.input_size
 
-    param_space = {
-        "lr": tune.loguniform(1e-4, 1e-2),
-        "d_model": tune.choice([32, 64, 128]),
-        "nhead": tune.choice([2, 4, 8]),
-        "num_encoder_layers": tune.choice([2, 3]),
-        "dim_feedforward": tune.choice([128, 256, 512]),
-        "dropout": tune.uniform(0.1, 0.3)
+    param_grid = {
+        "lr": [1e-3],
+        "d_model": [64],
+        "nhead": [2],
+        "num_encoder_layers": [2],
+        "dim_feedforward": [128],
+        "dropout": [0.1]
     }
 
     def train_func(config):
@@ -50,9 +49,8 @@ def run_tst_pipeline(preprocess=False):
             input_size=input_size
         )
 
-    tuner = RayTuner(train_func, param_space, num_samples=3, max_epochs=5)
-    best_config = tuner.optimize()
-    print(f"[Ray Tune] Best hyperparameters: {best_config}")
+    best_config = manual_gru_search(train_func, param_grid)
+    print(f"[Manual Search] Best hyperparameters: {best_config}")
 
     device = sequence_chunks.device
     model = TimeSeriesTransformer(
