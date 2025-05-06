@@ -1,5 +1,7 @@
 # utils/tuning.py
 
+from itertools import product
+import logging
 from skopt import gp_minimize
 import json
 import ray
@@ -7,19 +9,24 @@ from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 
 def manual_gru_search(train_func, param_grid):
-    best_score = -float("inf")
+    keys, values = zip(*param_grid.items())
     best_config = None
+    best_score = float("-inf")
 
-    for config in param_grid:
+    for v in product(*values):
+        config = dict(zip(keys, v))
+        logging.info(f"🔍 Trying config: {config}")
         print(f"\n🚀 Trying config: {config}")
-        score = train_func(config)
-
-        print(f"🔎 F1 Score: {score}")
-        if score > best_score:
-            best_score = score
-            best_config = config
-
-    print(f"\n✅ Best Config: {best_config} with F1 = {best_score}")
+        try:
+            score = train_func(config)
+            print(f"✅ Config {config} got score {score}")
+            if score > best_score:
+                best_score = score
+                best_config = config
+        except Exception as e:
+            print(f"❌ Error with config {config}: {e}")
+            continue
+        
     return best_config
 
 class SkoptTuner:
