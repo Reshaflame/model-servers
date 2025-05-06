@@ -32,6 +32,7 @@ class LSTM_RNN_Hybrid(nn.Module):
         return self.sigmoid(out)
     
 def save_checkpoint(model, optimizer, epoch, config, path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)  # ✅ Ensure directory exists
     torch.save({
         "model_state": model.state_dict(),
         "optimizer_state": optimizer.state_dict(),
