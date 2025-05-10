@@ -44,8 +44,8 @@ def run_tst_pipeline(preprocess=False):
     def train_func(config):
         return train_transformer(
             config=config,
-            train_loader=chunk_dataset.train_loader,
-            val_loader=chunk_dataset.val_loader,
+            train_loader=chunk_dataset.train_loader(),
+            val_loader=chunk_dataset.val_loader(),
             input_size=input_size,
             return_best_f1=True
         )
