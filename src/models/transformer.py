@@ -61,6 +61,7 @@ def load_checkpoint(model, optimizer, path):
     return checkpoint["epoch"]
 
 def train_transformer(config, train_loader, val_loader, input_size, return_best_f1=False):
+    torch.autograd.set_detect_anomaly(True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = TimeSeriesTransformer(
         input_size=input_size,
@@ -80,7 +81,7 @@ def train_transformer(config, train_loader, val_loader, input_size, return_best_
         model.train()
         logging.info(f"[TST] [Epoch {epoch+1}/3] 🔁 Training started...")
         batch_id = 0
-        for features, labels in train_loader:
+        for features, labels in train_loader():
             features, labels = features.to(device), labels.to(device)
             optimizer.zero_grad()
             
@@ -89,6 +90,9 @@ def train_transformer(config, train_loader, val_loader, input_size, return_best_
             labels = labels.view(-1)
             
             loss = criterion(outputs, labels)
+            if torch.isnan(loss):
+                logging.warning(f"[TST] ⚠️ NaN loss at batch {batch_id} — skipping this batch")
+                continue
             loss.backward()
             torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
             optimizer.step()
@@ -112,7 +116,7 @@ def train_transformer(config, train_loader, val_loader, input_size, return_best_
     val_loss, tp, fp, fn, batch_id = 0, 0, 0, 0, 0
 
     with torch.no_grad():
-        for features, labels in val_loader:
+        for features, labels in val_loader():
             batch_id += 1
             features, labels = features.to(device), labels.to(device)
 
