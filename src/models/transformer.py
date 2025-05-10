@@ -61,6 +61,13 @@ def load_checkpoint(model, optimizer, path):
     return checkpoint["epoch"]
 
 def train_transformer(config, train_loader, val_loader, input_size, return_best_f1=False):
+    from utils.debug_dataset import inspect_batch
+
+    # Grab first batch for inspection
+    for batch_features, batch_labels in train_loader():
+        inspect_batch(batch_features, batch_labels)
+        break  # Just check the first batch
+    
     torch.autograd.set_detect_anomaly(True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model = TimeSeriesTransformer(
