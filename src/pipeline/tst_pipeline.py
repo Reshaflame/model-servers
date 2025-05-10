@@ -31,9 +31,15 @@ def run_tst_pipeline(preprocess=False):
     input_size = chunk_dataset.input_size
 
     # ✅ Step 1: Manual tuning
-    param_grid = [
-        {"lr": 0.001, "d_model": 64, "nhead": 2, "num_encoder_layers": 2, "dim_feedforward": 128, "dropout": 0.1}
-    ]
+    param_grid = {
+        "lr": [0.001],
+        "d_model": [64],
+        "nhead": [2],
+        "num_encoder_layers": [2],
+        "dim_feedforward": [128],
+        "dropout": [0.1]
+    }
+
 
     def train_func(config):
         return train_transformer(
