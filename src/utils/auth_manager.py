@@ -4,7 +4,7 @@ import time
 import hashlib
 import logging
 import json
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta
 from functools import wraps
 from flask import request, jsonify
@@ -14,6 +14,12 @@ class AuthManager:
         self.secret_key = secret_key or os.urandom(32).hex()
         self._setup_logging()
         self._load_users()
+        self.role_permissions = {
+            'api_client': ['read', 'write', 'api_access'],
+            'frontend_client': ['read', 'frontend_access'],
+            'investigator': ['read', 'write', 'investigate', 'admin_access'],
+            'user': ['read']
+        }
         
     def _setup_logging(self):
         """Setup secure logging"""
@@ -44,19 +50,24 @@ class AuthManager:
         """Hash password using SHA-256"""
         return hashlib.sha256(password.encode()).hexdigest()
 
-    def create_user(self, username: str, password: str, role: str = 'user') -> bool:
-        """Create a new user"""
+    def create_user(self, username: str, password: str, role: str = 'user', permissions: List[str] = None) -> bool:
+        """Create a new user with specified role and permissions"""
         if username in self.users:
             self.logger.warning(f"User creation failed: {username} already exists")
             return False
         
+        if role not in self.role_permissions:
+            self.logger.warning(f"Invalid role: {role}")
+            return False
+            
         self.users[username] = {
             'password': self.hash_password(password),
             'role': role,
+            'permissions': permissions or self.role_permissions[role],
             'created_at': datetime.now().isoformat()
         }
         self._save_users()
-        self.logger.info(f"Created new user: {username}")
+        self.logger.info(f"Created new user: {username} with role: {role}")
         return True
 
     def verify_user(self, username: str, password: str) -> bool:
@@ -67,9 +78,11 @@ class AuthManager:
 
     def generate_token(self, username: str) -> str:
         """Generate JWT token for authenticated user"""
+        user = self.users[username]
         payload = {
             'username': username,
-            'role': self.users[username]['role'],
+            'role': user['role'],
+            'permissions': user.get('permissions', self.role_permissions[user['role']]),
             'exp': datetime.utcnow() + timedelta(hours=24)
         }
         return jwt.encode(payload, self.secret_key, algorithm='HS256')
@@ -117,6 +130,27 @@ class AuthManager:
                     return jsonify({'message': 'Invalid token'}), 401
                 
                 if payload['role'] != role:
+                    return jsonify({'message': 'Insufficient permissions'}), 403
+                
+                return f(*args, **kwargs)
+            return decorated
+        return decorator
+
+    def require_permission(self, permission: str):
+        """Decorator for requiring specific permission"""
+        def decorator(f):
+            @wraps(f)
+            def decorated(*args, **kwargs):
+                token = request.headers.get('Authorization')
+                if not token:
+                    return jsonify({'message': 'Missing token'}), 401
+                
+                token = token.split(' ')[-1]
+                payload = self.verify_token(token)
+                if not payload:
+                    return jsonify({'message': 'Invalid token'}), 401
+                
+                if permission not in payload.get('permissions', []):
                     return jsonify({'message': 'Insufficient permissions'}), 403
                 
                 return f(*args, **kwargs)
