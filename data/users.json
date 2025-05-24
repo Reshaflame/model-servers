@@ -3,23 +3,5 @@
     "password": "7e6e0c3079a08c5cc6036789b57e951f65f82383913ba1a49ae992544f1b4b6e",
     "role": "user",
     "created_at": "2025-05-22T10:21:47.042266"
-  },
-  "truedetect-api": {
-    "password": "7e6e0c3079a08c5cc6036789b57e951f65f82383913ba1a49ae992544f1b4b6e",
-    "role": "api_client",
-    "created_at": "2024-03-19T10:00:00.000000",
-    "permissions": ["read", "write", "api_access"]
-  },
-  "truedetect-frontend": {
-    "password": "7e6e0c3079a08c5cc6036789b57e951f65f82383913ba1a49ae992544f1b4b6e",
-    "role": "frontend_client",
-    "created_at": "2024-03-19T10:00:00.000000",
-    "permissions": ["read", "frontend_access"]
-  },
-  "investigator": {
-    "password": "7e6e0c3079a08c5cc6036789b57e951f65f82383913ba1a49ae992544f1b4b6e",
-    "role": "investigator",
-    "created_at": "2024-03-19T10:00:00.000000",
-    "permissions": ["read", "write", "investigate", "admin_access"]
   }
 }
