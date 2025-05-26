@@ -15,12 +15,18 @@ class IsolationForestModel:
         self.metrics = Metrics()
 
     def fit(self, X):
+        """Train the isolation forest on the feature matrix."""
         self.model.fit(X)
 
     def predict(self, X):
+        """Raw prediction: returns +1 (normal) or -1 (anomaly)."""
         return self.model.predict(X)
 
+    def predict_labels(self, X):
+        """Return binary labels: 1 = anomaly, 0 = normal — same format as GRU/LSTM."""
+        return np.where(self.predict(X) == -1, 1, 0)
+
     def evaluate(self, X, y_true):
-        preds = self.model.predict(X)
-        y_pred = np.where(preds == -1, 1, 0)
+        """Evaluate predictions against ground truth using shared Metrics class."""
+        y_pred = self.predict_labels(X)
         return self.metrics.compute_standard_metrics(y_true, y_pred)
