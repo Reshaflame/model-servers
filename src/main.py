@@ -12,7 +12,6 @@ os.environ["RAY_object_spilling_config"] = '{"type":"filesystem","params":{"dire
 from pipeline.iso_pipeline import run_iso_pipeline
 from pipeline.gru_pipeline import run_gru_pipeline
 from pipeline.lstm_pipeline import run_lstm_pipeline
-from pipeline.tst_pipeline import run_tst_pipeline
 from pipeline.ensemble_pipeline import run_ensemble_training
 
 def chunks_exist(path: str) -> bool:
@@ -38,10 +37,8 @@ def show_menu():
     print("2. Preprocess Unlabeled Data")
     print("3. Train GRU")
     print("4. Train LSTM+RNN")
-    print("5. Train Transformer")
-    print("6. Train Isolation Forest")
+    print("6. Evaluate Isolation Forest")
     print("7. Train Ensemble Voting")
-    print("8. Serve Download Page (port 8888)")
     print("0. Exit")
 
 def main():
@@ -57,14 +54,10 @@ def main():
             run_gru_pipeline(preprocess=False)
         elif choice == '4':
             run_lstm_pipeline(preprocess=False)
-        elif choice == '5':
-            run_tst_pipeline(preprocess=False)
         elif choice == '6':
             run_iso_pipeline(preprocess=False)
         elif choice == '7':
             run_ensemble_training()
-        elif choice == '8':
-            os.system("python src/utils/flask_server.py")
         elif choice == '0':
             print("👋 Exiting. Goodbye!")
             sys.exit(0)
