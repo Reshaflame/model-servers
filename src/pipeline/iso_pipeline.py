@@ -47,7 +47,7 @@ def run_iso_pipeline(preprocess=False):
 
     # === Step 1: Train on a sample (to avoid OOM) ===
     X_train = []
-    max_train_chunks = 200  # You can adjust this based on RAM
+    max_train_chunks = 200
     logging.info(f"🧠 Sampling first {max_train_chunks} chunks for training...")
 
     for i, (features, _) in enumerate(chunk_dataset.full_loader()):
@@ -60,30 +60,37 @@ def run_iso_pipeline(preprocess=False):
 
     model = IsolationForestModel(contamination=0.05, n_estimators=100)
     model.fit(X_train)
+
+    os.makedirs("/workspace/checkpoints", exist_ok=True)
     joblib.dump(model.model, "/workspace/checkpoints/isolation_forest_model.joblib")
     logging.info("✅ Isolation Forest model trained and saved.")
 
-    # === Step 2: Evaluate in streaming mode ===
-    y_true, y_pred = [], []
+    # === Step 2: Evaluate in streaming mode without growing memory ===
     logging.info("🧪 Starting evaluation on full dataset...")
 
+    tp = fp = fn = 0
     for i, (features, labels) in enumerate(chunk_dataset.full_loader(), 1):
         preds = model.predict_labels(features)
-        y_true.extend(labels)
-        y_pred.extend(preds)
+        labels_np = np.array(labels)
+        preds_np = np.array(preds)
+
+        tp += np.logical_and(preds_np == 1, labels_np == 1).sum()
+        fp += np.logical_and(preds_np == 1, labels_np == 0).sum()
+        fn += np.logical_and(preds_np == 0, labels_np == 1).sum()
 
         if i % 100 == 0:
             logging.info(f"📥 Evaluated {i} chunks...")
 
-    y_true = np.array(y_true)
-    y_pred = np.array(y_pred)
-    metrics = model.metrics.compute_standard_metrics(y_true, y_pred)
-    logging.info(f"📊 Final Evaluation Metrics: {metrics}")
+    precision = tp / (tp + fp + 1e-8)
+    recall    = tp / (tp + fn + 1e-8)
+    f1        = 2 * precision * recall / (precision + recall + 1e-8)
 
-    # === Step 3: Save predictions and ground truth ===
-    os.makedirs("/app/models/preds", exist_ok=True)
-    np.save("/app/models/preds/iso_preds.npy", y_pred)
-    np.save("/app/models/preds/y_true.npy", y_true)
-    logging.info("💾 Saved predictions and ground truth to /app/models/preds")
+    metrics = {
+        "precision": precision,
+        "recall": recall,
+        "F1": f1
+    }
+
+    logging.info(f"📊 Final Evaluation Metrics: {metrics}")
 
     logging.info("🎯 Isolation Forest pipeline completed successfully.")
