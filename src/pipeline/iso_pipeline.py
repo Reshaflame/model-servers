@@ -11,6 +11,8 @@ import logging
 import os
 import torch
 import joblib
+import pandas as pd
+from glob import glob
 
 # === Logging Setup ===
 logging.basicConfig(
@@ -28,12 +30,19 @@ def run_iso_pipeline(preprocess=False):
     
     logging.info("📦 Loading preprocessed labeled chunks...")
     chunk_dir = CHUNKS_LABELED_PATH
+
+    # === Step 0: Infer numeric features like GRU does ===
+    first_chunk_path = glob(os.path.join(chunk_dir, "*.csv"))[0]
+    df_sample = pd.read_csv(first_chunk_path)
+    expected_features = df_sample.drop(columns=['label']).select_dtypes(include=['number']).columns.tolist()
+    logging.info(f"🔍 Using {len(expected_features)} numeric features for Isolation Forest training.")
+
     chunk_dataset = ChunkedCSVDataset(
         chunk_dir=chunk_dir,
         chunk_size=5000,
         label_col='label',
         device='cuda' if torch.cuda.is_available() else 'cpu',
-        expected_features=None
+        expected_features=expected_features
     )
 
     # === Step 1: Train on a sample (to avoid OOM) ===
