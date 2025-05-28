@@ -38,8 +38,8 @@ def run_iso_pipeline(preprocess=False):
     # === Step 1: Load Features and Labels from Disk Chunks ===
     X_all, y_true = [], []
     for features, labels in chunk_dataset.full_loader():
-        X_all.append(features.cpu().numpy())
-        y_true.append(labels.cpu().numpy())
+        X_all.append(features)
+        y_true.append(labels)
     X_all = np.concatenate(X_all, axis=0)
     y_true = np.concatenate(y_true, axis=0)
     logging.info(f"✅ Loaded {len(X_all)} samples from disk.")
