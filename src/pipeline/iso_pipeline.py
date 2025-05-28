@@ -16,7 +16,7 @@ logging.basicConfig(
     level=logging.INFO,
     format='[IsolationForest] %(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("/app/logs/isolation_forest.log"),
+        logging.FileHandler("/workspace/logs/isolation_forest.log"),
         logging.StreamHandler()
     ]
 )
