@@ -60,7 +60,7 @@ def run_iso_pipeline(preprocess=False):
 
     model = IsolationForestModel(contamination=0.05, n_estimators=100)
     model.fit(X_train)
-    joblib.dump(model.model, "/app/models/isolation_forest_model.joblib")
+    joblib.dump(model.model, "/workspace/checkpoints/isolation_forest_model.joblib")
     logging.info("✅ Isolation Forest model trained and saved.")
 
     # === Step 2: Evaluate in streaming mode ===
