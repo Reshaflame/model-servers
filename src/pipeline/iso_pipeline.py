@@ -1,4 +1,3 @@
-
 # src/pipeline/iso_pipeline.py
 
 from utils.tuning import SkoptTuner
@@ -11,7 +10,9 @@ import numpy as np
 import logging
 import os
 import torch
+import joblib
 
+# === Logging Setup ===
 logging.basicConfig(
     level=logging.INFO,
     format='[IsolationForest] %(asctime)s - %(levelname)s - %(message)s',
@@ -23,7 +24,7 @@ logging.basicConfig(
 
 def run_iso_pipeline(preprocess=False):
     if preprocess:
-        logging.warning("🚧 Labeled data should already be preprocessed! Skipping manual preprocessing step.")
+        logging.warning("🚧 Labeled data should already be preprocessed! Skipping manual preprocessing.")
     
     logging.info("📦 Loading preprocessed labeled chunks...")
     chunk_dir = CHUNKS_LABELED_PATH
@@ -35,43 +36,45 @@ def run_iso_pipeline(preprocess=False):
         expected_features=None
     )
 
-    # === Step 1: Load Features and Labels from Disk Chunks ===
-    X_all, y_true = [], []
-    for features, labels in chunk_dataset.full_loader():
-        X_all.append(features)
-        y_true.append(labels)
-    X_all = np.concatenate(X_all, axis=0)
-    y_true = np.concatenate(y_true, axis=0)
-    logging.info(f"✅ Loaded {len(X_all)} samples from disk.")
+    # === Step 1: Train on a sample (to avoid OOM) ===
+    X_train = []
+    max_train_chunks = 200  # You can adjust this based on RAM
+    logging.info(f"🧠 Sampling first {max_train_chunks} chunks for training...")
 
-    # === Step 2: Hyperparameter Optimization ===
-    logging.info("🎯 Starting hyperparameter tuning with Skopt...")
-    space = [
-        Real(0.01, 0.2, name='contamination'),
-        Integer(50, 300, name='n_estimators')
-    ]
+    for i, (features, _) in enumerate(chunk_dataset.full_loader()):
+        if i >= max_train_chunks:
+            break
+        X_train.append(features)
+    
+    X_train = np.concatenate(X_train, axis=0)
+    logging.info(f"✅ Training set loaded with {len(X_train)} samples.")
 
-    tuner = SkoptTuner(IsolationForestModel, Metrics().compute_standard_metrics, space)
-    best_params = tuner.optimize(X_all, y_true)
-    contamination, n_estimators = best_params
-    logging.info(f"🏆 Best params found: contamination={contamination}, n_estimators={n_estimators}")
+    model = IsolationForestModel(contamination=0.05, n_estimators=100)
+    model.fit(X_train)
+    joblib.dump(model.model, "/app/models/isolation_forest_model.joblib")
+    logging.info("✅ Isolation Forest model trained and saved.")
 
-    # === Step 3: Train Final Model ===
-    model = IsolationForestModel(contamination=contamination, n_estimators=int(n_estimators))
-    model.fit(X_all)
-    logging.info("🧠 Isolation Forest model trained.")
+    # === Step 2: Evaluate in streaming mode ===
+    y_true, y_pred = [], []
+    logging.info("🧪 Starting evaluation on full dataset...")
 
-    # === Step 4: Evaluate and Save ===
-    metrics = model.evaluate(X_all, y_true)
-    logging.info(f"📊 Evaluation Metrics: {metrics}")
+    for i, (features, labels) in enumerate(chunk_dataset.full_loader(), 1):
+        preds = model.predict_labels(features)
+        y_true.extend(labels)
+        y_pred.extend(preds)
 
-    y_pred = np.where(model.predict(X_all) == -1, 1, 0)
-    anomalies_detected = y_pred.sum()
-    logging.info(f"🚨 Total anomalies detected: {anomalies_detected} / {len(y_pred)}")
+        if i % 100 == 0:
+            logging.info(f"📥 Evaluated {i} chunks...")
 
-    os.makedirs('/app/models/preds', exist_ok=True)
+    y_true = np.array(y_true)
+    y_pred = np.array(y_pred)
+    metrics = model.metrics.compute_standard_metrics(y_true, y_pred)
+    logging.info(f"📊 Final Evaluation Metrics: {metrics}")
+
+    # === Step 3: Save predictions and ground truth ===
+    os.makedirs("/app/models/preds", exist_ok=True)
     np.save("/app/models/preds/iso_preds.npy", y_pred)
     np.save("/app/models/preds/y_true.npy", y_true)
-    logging.info("💾 Predictions and ground truth saved to /app/models/preds")
+    logging.info("💾 Saved predictions and ground truth to /app/models/preds")
 
-    logging.info("✅ Isolation Forest pipeline completed successfully.")
+    logging.info("🎯 Isolation Forest pipeline completed successfully.")
