@@ -9,14 +9,32 @@ from ray import tune
 from ray.tune.schedulers import ASHAScheduler
 
 def manual_gru_search(train_func, param_grid):
-    keys, values = zip(*param_grid.items())
-    best_config = None
-    best_score = float("-inf")
+    # Check if param_grid is a list (manual config mode)
+    if isinstance(param_grid, list):
+        best_score = float("-inf")
+        best_config = None
+        for config in param_grid:
+            logging.info(f"🔍 Trying manual config: {config}")
+            print(f"\n🚀 Trying manual config: {config}")
+            try:
+                score = train_func(config)
+                print(f"✅ Config {config} got score {score}")
+                if score > best_score:
+                    best_score = score
+                    best_config = config
+            except Exception as e:
+                print(f"❌ Error with config {config}: {e}")
+                continue
+        return best_config
 
+    # Default grid search mode (dict of hyperparam lists)
+    keys, values = zip(*param_grid.items())
+    best_score = float("-inf")
+    best_config = None
     for v in product(*values):
         config = dict(zip(keys, v))
-        logging.info(f"🔍 Trying config: {config}")
-        print(f"\n🚀 Trying config: {config}")
+        logging.info(f"🔍 Trying grid config: {config}")
+        print(f"\n🚀 Trying grid config: {config}")
         try:
             score = train_func(config)
             print(f"✅ Config {config} got score {score}")
@@ -26,8 +44,8 @@ def manual_gru_search(train_func, param_grid):
         except Exception as e:
             print(f"❌ Error with config {config}: {e}")
             continue
-        
     return best_config
+
 
 class SkoptTuner:
     def __init__(self, model_class, metric_func, space):
