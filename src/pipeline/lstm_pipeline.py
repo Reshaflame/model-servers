@@ -30,10 +30,11 @@ def run_lstm_pipeline(preprocess=False):
 
     # Step 1: Manual param search
     param_grid = [
-        {"lr": 0.001, "hidden_size": 64, "num_layers": 1},
-        {"lr": 0.0005, "hidden_size": 128, "num_layers": 2},
-        {"lr": 0.001, "hidden_size": 128, "num_layers": 1}
+        {"lr": 0.001, "hidden_size": 64, "num_layers": 1, "epochs": 6, "early_stop_patience": 2},
+        {"lr": 0.0005, "hidden_size": 128, "num_layers": 2, "epochs": 6, "early_stop_patience": 2},
+        {"lr": 0.001, "hidden_size": 128, "num_layers": 1, "epochs": 6, "early_stop_patience": 2}
     ]
+
 
     def train_func(config):
         return train_model(
