@@ -51,7 +51,7 @@ def run_gru_pipeline(preprocess=False):
         return train_model(
             config=config,
             train_loader=chunk_dataset.train_loader(),
-            val_loader=chunk_dataset.val_loader(),
+            val_loader = chunk_dataset.val_loader,  # ← no `()`, it's a generator function
             input_size=input_size,
             return_best_f1=True
             )
@@ -64,7 +64,7 @@ def run_gru_pipeline(preprocess=False):
     model = train_model(
         config=best_config,
         train_loader=chunk_dataset.train_loader(),
-        val_loader=chunk_dataset.val_loader(),
+        val_loader = chunk_dataset.val_loader,
         input_size=input_size,
         return_best_f1=False
     )

@@ -80,7 +80,7 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
             model.eval()
             y_true, y_pred = [], []
             with torch.no_grad():
-                for features, labels in val_loader:
+                for features, labels in val_loader():
                     features = features.float().to(device)
                     labels = labels.float().to(device)
                     preds = torch.sigmoid(model(features))
