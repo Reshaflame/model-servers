@@ -41,9 +41,9 @@ def run_gru_pipeline(preprocess=False):
 
     # ✅ Step 3: Define manual hyperparameter grid
     param_grid = [
-        {"lr": 0.001, "hidden_size": 64, "num_layers": 1},
-        {"lr": 0.0005, "hidden_size": 128, "num_layers": 2},
-        {"lr": 0.001, "hidden_size": 128, "num_layers": 1}
+        {"lr": 0.001, "hidden_size": 64, "num_layers": 1, "epochs": 6, "early_stop_patience": 2},
+        {"lr": 0.0005, "hidden_size": 128, "num_layers": 2, "epochs": 6, "early_stop_patience": 2},
+        {"lr": 0.001, "hidden_size": 128, "num_layers": 1, "epochs": 6, "early_stop_patience": 2}
     ]
 
     # ✅ Step 4: Wrap the training function
