@@ -46,6 +46,10 @@ def run_lstm_pipeline(preprocess=False):
         )
 
     best_config = manual_gru_search(train_func, param_grid)
+    if best_config is None:
+        print("❌ No valid configuration found. Exiting pipeline.")
+        return
+
     print(f"[Manual Tune] ✅ Best config: {best_config}")
 
     # Step 2: Final training and export

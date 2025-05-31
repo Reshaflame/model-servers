@@ -26,7 +26,7 @@ class LSTM_RNN_Hybrid(nn.Module):
         lstm_out, _ = self.lstm(x)
         rnn_out, _ = self.rnn(lstm_out)
         out = self.fc(rnn_out[:, -1, :])
-        return out  # No sigmoid here — we use BCEWithLogitsLoss
+        return out  # logits (no sigmoid)
 
 def save_checkpoint(model, optimizer, epoch, config, path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
@@ -73,9 +73,12 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
         logging.info(f"[LSTM] [Epoch {epoch+1}/{epochs}] 🔁 Training started...")
         for batch_num, (features, labels) in enumerate(train_loader(), 1):
             features, labels = features.to(device), labels.to(device)
+            if labels.dim() == 3:
+                labels = labels.squeeze(-1)
+
             optimizer.zero_grad()
-            outputs = model(features)
-            loss = criterion(outputs, labels.unsqueeze(1))
+            logits = model(features)
+            loss = criterion(logits, labels)
             loss.backward()
             optimizer.step()
 
@@ -102,8 +105,11 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
     with torch.no_grad():
         for batch_id, (features, labels) in enumerate(val_loader(), 1):
             features, labels = features.to(device), labels.to(device)
+            if labels.dim() == 3:
+                labels = labels.squeeze(-1)
+
             logits = model(features)
-            loss = criterion(logits, labels.unsqueeze(1))
+            loss = criterion(logits, labels)
             val_loss += loss.item()
 
             probs = torch.sigmoid(logits)
