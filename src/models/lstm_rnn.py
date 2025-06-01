@@ -6,21 +6,6 @@ import numpy as np
 from utils.model_exporter import export_model
 from utils.metrics import Metrics
 
-formatter = logging.Formatter("%(asctime)s [LSTM] [%(levelname)s] %(message)s")
-
-file_handler = logging.FileHandler("/workspace/logs/lstm_training.log")
-file_handler.setFormatter(formatter)
-
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-
-logger = logging.getLogger()
-logger.handlers.clear()  # Prevent duplicate or inherited handlers
-logger.setLevel(logging.INFO)
-logger.addHandler(file_handler)
-logger.addHandler(stream_handler)
-
-
 class LSTM_RNN_Hybrid(nn.Module):
     def __init__(self, input_size, hidden_size=64, num_layers=1, output_size=1):
         super(LSTM_RNN_Hybrid, self).__init__()
@@ -55,6 +40,23 @@ def load_checkpoint(model, optimizer, path):
     return checkpoint["epoch"]
 
 def train_model(config, train_loader, val_loader, input_size, return_best_f1=False):
+    
+    # ✅ Init logging only during training
+    os.makedirs("/workspace/logs", exist_ok=True)
+    formatter = logging.Formatter("%(asctime)s [LSTM] [%(levelname)s] %(message)s")
+
+    file_handler = logging.FileHandler("/workspace/logs/lstm_training.log")
+    file_handler.setFormatter(formatter)
+
+    stream_handler = logging.StreamHandler()
+    stream_handler.setFormatter(formatter)
+
+    logger = logging.getLogger()
+    logger.handlers.clear()
+    logger.setLevel(logging.INFO)
+    logger.addHandler(file_handler)
+    logger.addHandler(stream_handler)
+
     model = LSTM_RNN_Hybrid(
         input_size=input_size,
         hidden_size=config["hidden_size"],

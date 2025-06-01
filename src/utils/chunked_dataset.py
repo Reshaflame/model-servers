@@ -26,7 +26,7 @@ class ChunkedCSVDataset(IterableDataset):
         total_rows = len(chunk_df)
         for start in range(0, total_rows, self.chunk_size):
             batch = chunk_df.iloc[start:start + self.chunk_size]
-            labels = (batch[self.label_col] != -1).astype(float)
+            labels = (batch[self.label_col] == -1).astype(float)
             features = batch.drop(columns=[self.label_col])
             yield features.to_numpy(), labels.to_numpy()
 
