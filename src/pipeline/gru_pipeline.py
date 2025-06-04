@@ -51,10 +51,10 @@ def run_gru_pipeline(preprocess=False):
         return train_model(
             config=config,
             train_loader=chunk_dataset.train_loader(),
-            val_loader = chunk_dataset.val_loader,  # ← no `()`, it's a generator function
+            val_loader_fn=chunk_dataset.val_loader,  # ← pass function, not generator
             input_size=input_size,
             return_best_f1=True
-            )
+        )
 
     # ✅ Step 5: Search for best config manually
     best_config = manual_gru_search(train_func, param_grid)
