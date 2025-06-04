@@ -59,7 +59,7 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
 
     # === Step 1: Dynamically compute pos_weight ===
     num_pos, num_neg = 0, 0
-    for _, y in train_loader:  # if train_loader is generator, no () needed
+    for _, y in train_loader():  # if train_loader is generator, no () needed
         num_pos += (y == 1).sum().item()
         num_neg += (y == 0).sum().item()
     ratio = num_neg / max(1, num_pos)
