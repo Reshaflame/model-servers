@@ -84,6 +84,7 @@ class SequenceChunkedDataset:
                 sampler = None
             else:
                 weights = (labels_train == 1).float() * (num_neg / (num_pos + 1e-6)) + 1.0
+                weights = weights.squeeze()  # ✅ FIX: make sure shape is (N,)
                 sampler = WeightedRandomSampler(weights, num_samples=len(labels_train), replacement=True)
         else:
             sampler = None
