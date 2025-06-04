@@ -64,8 +64,8 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
     # all_val_labels = []
     # for _, labels in val_loader_fn():
     #     all_val_labels.extend(labels.cpu().numpy().flatten())
-    unique, counts = np.unique(all_val_labels, return_counts=True)
-    print("[Debug] Validation Label Distribution:", dict(zip(unique, counts)))
+    # unique, counts = np.unique(all_val_labels, return_counts=True)
+    # print("[Debug] Validation Label Distribution:", dict(zip(unique, counts)))
 
     for epoch in range(epochs):
         model.train()
