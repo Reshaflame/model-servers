@@ -41,7 +41,7 @@ def evaluate_model(model, test_loader, device):
     print("Metrics:", results)
     return results
 
-def train_model(config, train_loader, val_loader, input_size, return_best_f1=False):
+def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=False):
     model = GRUAnomalyDetector(
         input_size=input_size,
         hidden_size=config["hidden_size"],
@@ -59,13 +59,12 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
     early_stop_patience = config.get("early_stop_patience", 2)
     patience_counter = 0
 
+    # ✅ Debug: Check validation distribution before training
     all_val_labels = []
-    for _, labels in val_loader():
+    for _, labels in val_loader_fn():
         all_val_labels.extend(labels.cpu().numpy().flatten())
-
     unique, counts = np.unique(all_val_labels, return_counts=True)
     print("[Debug] Validation Label Distribution:", dict(zip(unique, counts)))
-
 
     for epoch in range(epochs):
         model.train()
@@ -87,16 +86,17 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
             print("[Eval] 🧪 Evaluating F1 for early stopping...")
             model.eval()
             y_true, y_pred = [], []
+
             with torch.no_grad():
-                for features, labels in val_loader():
+                for batch_id, (features, labels) in enumerate(val_loader_fn(), 1):
                     features = features.float().to(device)
+                    labels = labels.float().to(device)
                     if features.dim() == 2:
                         features = features.unsqueeze(1)
-                    labels = labels.float().to(device)
                     preds = torch.sigmoid(model(features))
                     preds_bin = (preds > 0.5).float()
 
-                    if len(y_true) == 0:
+                    if batch_id == 1:  # ✅ Print sample for debugging
                         print("[Eval Debug] Logits:", preds[:5].squeeze().cpu().numpy())
                         print("[Eval Debug] Labels:", labels[:5].cpu().numpy())
 
