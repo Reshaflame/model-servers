@@ -59,6 +59,14 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
     early_stop_patience = config.get("early_stop_patience", 2)
     patience_counter = 0
 
+    all_val_labels = []
+    for _, labels in val_loader():
+        all_val_labels.extend(labels.cpu().numpy().flatten())
+
+    unique, counts = np.unique(all_val_labels, return_counts=True)
+    print("[Debug] Validation Label Distribution:", dict(zip(unique, counts)))
+
+
     for epoch in range(epochs):
         model.train()
         print(f"[GRU] [Epoch {epoch+1}/{epochs}] 🔁 Training started...")
@@ -82,11 +90,16 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
             with torch.no_grad():
                 for features, labels in val_loader():
                     features = features.float().to(device)
+                    if features.dim() == 2:
+                        features = features.unsqueeze(1)
                     labels = labels.float().to(device)
                     preds = torch.sigmoid(model(features))
-                    preds_bin = (preds > 0.5).float()
-                    y_true.extend(labels.cpu().numpy())
-                    y_pred.extend(preds_bin.cpu().numpy())
+
+                    # 🔍 Optional: log only on first batch to avoid spam
+                    if len(y_true) == 0:
+                        print("[Eval Debug] Logits:", preds[:5].squeeze().cpu().numpy())
+                        print("[Eval Debug] Labels:", labels[:5].cpu().numpy())
+
 
             precision = precision_score(y_true, y_pred, zero_division=0)
             recall = recall_score(y_true, y_pred, zero_division=0)

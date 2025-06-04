@@ -4,7 +4,6 @@ import torch.nn as nn
 import logging
 import numpy as np
 from utils.model_exporter import export_model
-from utils.metrics import Metrics
 
 class LSTM_RNN_Hybrid(nn.Module):
     def __init__(self, input_size, hidden_size=64, num_layers=1, output_size=1):

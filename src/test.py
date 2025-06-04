@@ -57,8 +57,8 @@ iso_model = joblib.load("models/isolation_forest_model.joblib")
 with torch.no_grad():
     gru_logits = gru_model(X_seq)
     lstm_logits = lstm_model(X_seq)
-    gru_scores = torch.sigmoid(gru_logits).squeeze().numpy()
-    lstm_scores = torch.sigmoid(lstm_logits).squeeze().numpy()
+    gru_scores = 1 - torch.sigmoid(gru_model(X_seq)).squeeze().numpy()
+    lstm_scores = 1 - torch.sigmoid(lstm_model(X_seq)).squeeze().numpy()
 
 iso_raw = iso_model.decision_function(X.numpy())
 iso_scores = (iso_raw - np.min(iso_raw)) / (np.ptp(iso_raw) + 1e-9)
