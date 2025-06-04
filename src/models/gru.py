@@ -61,11 +61,12 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
     patience_counter = 0
 
     # ✅ Debug: Check validation distribution before training
-    # all_val_labels = []
-    # for _, labels in val_loader_fn():
-    #     all_val_labels.extend(labels.cpu().numpy().flatten())
-    # unique, counts = np.unique(all_val_labels, return_counts=True)
-    # print("[Debug] Validation Label Distribution:", dict(zip(unique, counts)))
+    all_val_labels = []
+    for _, labels in val_loader_fn():
+        all_val_labels.extend(labels.cpu().numpy().flatten())
+    unique, counts = np.unique(all_val_labels, return_counts=True)
+    print("[Debug] Validation Label Distribution:", dict(zip(unique, counts)))
+
 
     for epoch in range(epochs):
         model.train()
