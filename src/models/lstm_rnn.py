@@ -99,7 +99,8 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
         if return_best_f1:
             logging.info("[Eval] 🧪 Evaluating F1 for early stopping...")
             model.eval()
-            precision, recall, f1 = quick_f1(model, val_loader, device)
+            m = quick_f1(model, val_loader, device)
+            precision, recall, f1 = m["Precision"], m["Recall"], m["F1"]
             logging.info(f"[Eval] ✅ Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}")
 
             if f1 > best_f1:

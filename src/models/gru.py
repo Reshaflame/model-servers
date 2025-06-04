@@ -82,7 +82,9 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
 
             optimizer.zero_grad()
             logits = model(batch_features)
-            loss = criterion(logits, batch_labels.unsqueeze(1))
+            if batch_labels.dim() == 1:
+                batch_labels = batch_labels.unsqueeze(1)
+            loss = criterion(logits, batch_labels)
             loss.backward()
             optimizer.step()
 
@@ -91,7 +93,8 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
         if return_best_f1:
             print("[Eval] 🧪 Evaluating F1 for early stopping...", flush=True)
             model.eval()
-            precision, recall, f1 = quick_f1(model, val_loader_fn, device)
+            m = quick_f1(model, val_loader_fn, device)
+            precision, recall, f1 = m["Precision"], m["Recall"], m["F1"]
             print(f"[Eval] F1={f1:.4f} | Precision={precision:.4f} | Recall={recall:.4f}", flush=True)
 
             if f1 > best_f1:

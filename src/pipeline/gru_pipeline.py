@@ -34,8 +34,8 @@ def run_gru_pipeline(preprocess=False):
         label_column='label',
         batch_size=256,
         shuffle_files=True,
-        binary_labels=False,      # we will keep anomaly=1 after Step 1
-        sequence_length=1,        # GRU still wants single-timestep
+        binary_labels=True,
+        sequence_length=1,
         device='cuda' if torch.cuda.is_available() else 'cpu'
     )
 
@@ -64,7 +64,7 @@ def run_gru_pipeline(preprocess=False):
     model = train_model(
         config=best_config,
         train_loader=chunk_dataset.train_loader(),
-        val_loader = chunk_dataset.val_loader,
+        val_loader_fn=chunk_dataset.val_loader,
         input_size=input_size,
         return_best_f1=False
     )
