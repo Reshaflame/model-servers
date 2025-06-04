@@ -1,9 +1,7 @@
 # src/pipeline/iso_pipeline.py
+# checked
 
-from utils.tuning import SkoptTuner
-from skopt.space import Real, Integer
 from models.isolation_forest import IsolationForestModel
-from utils.metrics import Metrics
 from utils.constants import CHUNKS_LABELED_PATH
 from utils.chunked_dataset import ChunkedCSVDataset
 import numpy as np

@@ -1,3 +1,4 @@
+# checked
 import numpy as np
 from decision.weighted_voting import WeightedVoting
 

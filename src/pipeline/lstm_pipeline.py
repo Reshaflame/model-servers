@@ -1,3 +1,4 @@
+# checked
 from models.lstm_rnn import train_model
 from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
 from utils.evaluator import evaluate_and_export

@@ -1,10 +1,9 @@
+# checked
 import numpy as np
-import sys
 import torch
 import torch.nn as nn
 from utils.metrics import Metrics
 from sklearn.metrics import precision_score, recall_score, f1_score
-from utils.model_exporter import export_model
 
 metrics = Metrics()
 

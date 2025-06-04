@@ -1,12 +1,8 @@
+# checked
 import os
 import pandas as pd
 import json
 
-try:
-    import cudf
-    CUDF_AVAILABLE = False if os.getenv("CUDF_FORCE_DISABLE") == "true" else True
-except ImportError:
-    CUDF_AVAILABLE = False
 
 # === Load known AUTH categories ===
 with open("data/auth_categories.json") as f:
@@ -35,7 +31,7 @@ def preprocess_unlabeled_chunk(chunk_path, all_categories, output_dir, chunk_id,
 
     for start in range(0, len(df), batch_size):
         batch_df = df.iloc[start:start + batch_size].copy()
-        print(f"[Chunk {chunk_id}] 🧪 Rows {start}-{start + batch_size} (cuDF={CUDF_AVAILABLE})")
+        print(f"[Chunk {chunk_id}] 🧪 Rows {start}-{start + batch_size}")
 
         try:
             # === Add frequency-encoded features ===
@@ -44,23 +40,14 @@ def preprocess_unlabeled_chunk(chunk_path, all_categories, output_dir, chunk_id,
             batch_df["src_comp_freq"] = batch_df["src_comp"].map(get_comp_freq).fillna(0)
             batch_df["dst_comp_freq"] = batch_df["dst_comp"].map(get_comp_freq).fillna(0)
 
-            if CUDF_AVAILABLE:
-                batch = cudf.from_pandas(batch_df)
-                for col in all_categories:
-                    if col in batch.columns:
-                        batch[col] = batch[col].astype(str)
-                        allowed = set(all_categories[col])
-                        batch[col] = batch[col].where(batch[col].isin(allowed), other='OTHER')
-                        batch[col] = batch[col].astype('category').cat.set_categories(all_categories[col] + ["OTHER"])
-                batch = cudf.get_dummies(batch, columns=all_categories.keys(), dummy_na=False).to_pandas()
-            else:
-                for col in all_categories:
-                    if col in batch_df.columns:
-                        batch_df[col] = batch_df[col].astype(str)
-                        allowed = set(all_categories[col])
-                        batch_df[col] = batch_df[col].where(batch_df[col].isin(allowed), other='OTHER')
-                        batch_df[col] = pd.Categorical(batch_df[col], categories=all_categories[col] + ["OTHER"])
-                batch = pd.get_dummies(batch_df, columns=list(all_categories.keys()), dummy_na=False)
+            
+            for col in all_categories:
+                if col in batch_df.columns:
+                    batch_df[col] = batch_df[col].astype(str)
+                    allowed = set(all_categories[col])
+                    batch_df[col] = batch_df[col].where(batch_df[col].isin(allowed), other='OTHER')
+                    batch_df[col] = pd.Categorical(batch_df[col], categories=all_categories[col] + ["OTHER"])
+            batch = pd.get_dummies(batch_df, columns=list(all_categories.keys()), dummy_na=False)
 
             # === Ensure all dummy columns exist ===
             for col in all_categories:

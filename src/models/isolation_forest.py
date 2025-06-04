@@ -1,5 +1,5 @@
 # src/models/isolation_forest.py
-
+# checked
 from sklearn.ensemble import IsolationForest
 import numpy as np
 from utils.metrics import Metrics

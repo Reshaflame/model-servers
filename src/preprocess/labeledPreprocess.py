@@ -1,3 +1,4 @@
+# checked
 import os
 import pandas as pd
 import gzip
@@ -6,12 +7,6 @@ from collections import Counter
 
 with open("data/auth_categories.json") as f:
     AUTH_CATEGORIES = json.load(f)
-
-try:
-    import cudf
-    CUDF_AVAILABLE = False if os.getenv("CUDF_FORCE_DISABLE") == "true" else True
-except ImportError:
-    CUDF_AVAILABLE = False
 
 import json
 
@@ -48,7 +43,7 @@ def process_labeled_chunk(chunk_path, redteam_events, categorical_columns, outpu
 
     for start in range(0, len(df), batch_size):
         batch_df = df.iloc[start:start + batch_size].copy()
-        print(f"[Chunk {chunk_id}] 🧪 Processing rows {start} to {start + batch_size} (cuDF={CUDF_AVAILABLE})")
+        print(f"[Chunk {chunk_id}] 🧪 Processing rows {start} to {start + batch_size}")
     
         try:
             # print(f"[DEBUG] 🔍 Columns BEFORE encoding: {list(batch_df.columns)}")
@@ -59,36 +54,25 @@ def process_labeled_chunk(chunk_path, redteam_events, categorical_columns, outpu
             batch_df["src_comp_freq"] = batch_df["src_comp"].map(get_comp_freq).fillna(0)
             batch_df["dst_comp_freq"] = batch_df["dst_comp"].map(get_comp_freq).fillna(0)
         
-            if CUDF_AVAILABLE:
-                batch = cudf.from_pandas(batch_df)
-                for col in categorical_columns:
-                    if col in batch.columns:
-                        batch[col] = batch[col].astype(str)
-                        allowed = set(AUTH_CATEGORIES[col])
-                        batch[col] = batch[col].where(batch[col].isin(allowed), other='OTHER')
-                        batch[col] = batch[col].astype('category').cat.set_categories(AUTH_CATEGORIES[col] + ["OTHER"])
-                batch = cudf.get_dummies(batch, columns=categorical_columns, dummy_na=False)
-                batch = batch.to_pandas()
-            else:
-                print(f"[Chunk {chunk_id} | Batch {start}-{start+batch_size}] ⚠️ cuDF not available. Using pandas only.")
-                for col in categorical_columns:
-                    if col not in batch_df.columns:
-                        # print(f"[DEBUG] ⛔ Column '{col}' missing in batch_df before encoding.")
-                        continue
-                
-                    # print(f"[DEBUG] ✅ Processing categorical column: {col}")
-                    batch_df[col] = batch_df[col].astype(str)
-                
-                    # Only apply category limiting if we have predefined categories
-                    if col in AUTH_CATEGORIES:
-                        allowed = set(AUTH_CATEGORIES[col])
-                        batch_df[col] = batch_df[col].where(batch_df[col].isin(allowed), other='OTHER')
-                        batch_df[col] = pd.Categorical(batch_df[col], categories=AUTH_CATEGORIES[col] + ["OTHER"])
+            print(f"[Chunk {chunk_id} | Batch {start}-{start+batch_size}] ⚠️ cuDF not available. Using pandas only.")
+            for col in categorical_columns:
+                if col not in batch_df.columns:
+                    # print(f"[DEBUG] ⛔ Column '{col}' missing in batch_df before encoding.")
+                    continue
+            
+                # print(f"[DEBUG] ✅ Processing categorical column: {col}")
+                batch_df[col] = batch_df[col].astype(str)
+            
+                # Only apply category limiting if we have predefined categories
+                if col in AUTH_CATEGORIES:
+                    allowed = set(AUTH_CATEGORIES[col])
+                    batch_df[col] = batch_df[col].where(batch_df[col].isin(allowed), other='OTHER')
+                    batch_df[col] = pd.Categorical(batch_df[col], categories=AUTH_CATEGORIES[col] + ["OTHER"])
 
-        
-                # print(f"[DEBUG] 🧱 Columns just before get_dummies: {list(batch_df.columns)}")
-                batch = pd.get_dummies(batch_df, columns=[col for col in categorical_columns if col in batch_df.columns], dummy_na=False)
-                # print(f"[DEBUG] 🧱 Columns AFTER get_dummies: {list(batch.columns)}")
+    
+            # print(f"[DEBUG] 🧱 Columns just before get_dummies: {list(batch_df.columns)}")
+            batch = pd.get_dummies(batch_df, columns=[col for col in categorical_columns if col in batch_df.columns], dummy_na=False)
+            # print(f"[DEBUG] 🧱 Columns AFTER get_dummies: {list(batch.columns)}")
         
             # Ensure consistent dummy columns
             for col in categorical_columns:
