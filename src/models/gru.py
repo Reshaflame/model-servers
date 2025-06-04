@@ -94,12 +94,14 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
                         features = features.unsqueeze(1)
                     labels = labels.float().to(device)
                     preds = torch.sigmoid(model(features))
+                    preds_bin = (preds > 0.5).float()
 
-                    # 🔍 Optional: log only on first batch to avoid spam
                     if len(y_true) == 0:
                         print("[Eval Debug] Logits:", preds[:5].squeeze().cpu().numpy())
                         print("[Eval Debug] Labels:", labels[:5].cpu().numpy())
 
+                    y_true.extend(labels.cpu().numpy())
+                    y_pred.extend(preds_bin.cpu().numpy())
 
             precision = precision_score(y_true, y_pred, zero_division=0)
             recall = recall_score(y_true, y_pred, zero_division=0)
