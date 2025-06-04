@@ -57,9 +57,17 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
     model.to(device)
     print("[Debug] 🚀 Model instantiated and moved to device", flush=True)
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
-    pos_weight = torch.tensor([100.0], device=device)
+    # === Step 1: Dynamically compute pos_weight ===
+    num_pos, num_neg = 0, 0
+    for _, y in train_loader:  # if train_loader is generator, no () needed
+        num_pos += (y == 1).sum().item()
+        num_neg += (y == 0).sum().item()
+    ratio = num_neg / max(1, num_pos)
+    print(f"[Info] pos_weight ratio={ratio:.1f}", flush=True)
+
+    pos_weight = torch.tensor([ratio], device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
     print("[Debug] ✅ Optimizer and loss set up", flush=True)
 
     best_f1 = 0
@@ -79,11 +87,11 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
 
             batch_features = batch_features.float().to(device)
             batch_labels = batch_labels.float().to(device)
+            if batch_labels.dim() == 1:
+                batch_labels = batch_labels.unsqueeze(1)
 
             optimizer.zero_grad()
             logits = model(batch_features)
-            if batch_labels.dim() == 1:
-                batch_labels = batch_labels.unsqueeze(1)
             loss = criterion(logits, batch_labels)
             loss.backward()
             optimizer.step()
@@ -93,9 +101,11 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
         if return_best_f1:
             print("[Eval] 🧪 Evaluating F1 for early stopping...", flush=True)
             model.eval()
-            m = quick_f1(model, val_loader_fn, device)
-            precision, recall, f1 = m["Precision"], m["Recall"], m["F1"]
-            print(f"[Eval] F1={f1:.4f} | Precision={precision:.4f} | Recall={recall:.4f}", flush=True)
+
+            metrics_dict = quick_f1(model, val_loader_fn, device)
+            precision, recall, f1, th = (metrics_dict[k] for k in ("Precision", "Recall", "F1", "th"))
+
+            print(f"[Eval] th={th:.2f}  F1={f1:.4f} | P={precision:.4f} | R={recall:.4f}")
 
             if f1 > best_f1:
                 best_f1 = f1
@@ -106,6 +116,7 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
                 if patience_counter >= early_stop_patience:
                     print("🛑 Early stopping triggered.", flush=True)
                     break
+
 
     print("[Debug] 🎉 Finished training function", flush=True)
     return best_f1 if return_best_f1 else model

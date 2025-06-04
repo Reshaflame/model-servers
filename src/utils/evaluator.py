@@ -5,18 +5,26 @@ import os
 from utils.metrics import Metrics
 
 
-def quick_f1(model, val_loader, device):
+def quick_f1(model, val_loader, device, thresh_list=(0.5, 0.3, 0.1)):
     m = Metrics()
-    y_true, y_pred = [], []
+    y_true, logits = [], []
     with torch.no_grad():
         for x, y in val_loader():
             x, y = x.to(device), y.to(device)
-            if x.dim() == 2:  # GRU or flat input
+            if x.dim() == 2:
                 x = x.unsqueeze(1)
-            preds = (torch.sigmoid(model(x)) > 0.5).float()
-            y_true.extend(y.cpu().numpy().flatten())
-            y_pred.extend(preds.cpu().numpy().flatten())
-    return m.compute_standard_metrics(y_true, y_pred)
+            logits.append(torch.sigmoid(model(x)).cpu())
+            y_true.append(y.cpu())
+    y_true  = torch.cat(y_true).numpy().flatten()
+    logits  = torch.cat(logits).numpy().flatten()
+
+    best = {"F1":0}
+    for t in thresh_list:
+        preds = (logits > t).astype(int)
+        cur   = m.compute_standard_metrics(y_true, preds)
+        if cur["F1"] > best["F1"]:
+            best = cur | {"th":t}
+    return best
 
 
 def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_truth=False):

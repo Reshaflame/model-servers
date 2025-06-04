@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import numpy as np
 import torch
-from torch.utils.data import DataLoader, TensorDataset, random_split
+from torch.utils.data import DataLoader, TensorDataset, random_split, WeightedRandomSampler
 
 
 class SequenceChunkedDataset:
@@ -45,7 +45,7 @@ class SequenceChunkedDataset:
 
     def _load_sequences_from_chunk(self, chunk_path):
         df = pd.read_csv(chunk_path)
-        
+
         if df[self.feature_columns].select_dtypes(include="object").shape[1] > 0:
             print(f"[WARNING] ⚠️ Chunk {os.path.basename(chunk_path)} has non-numeric columns. They will be coerced to 0.")
 
@@ -66,26 +66,50 @@ class SequenceChunkedDataset:
         X_tensor = torch.tensor(X_seq, dtype=torch.float32, device=self.device)
         y_tensor = torch.tensor(y_seq, dtype=torch.float32, device=self.device).unsqueeze(1)
 
-
-
         dataset = TensorDataset(X_tensor, y_tensor)
-        return random_split(
-            dataset,
-            [int(len(dataset) * self.split_ratio), len(dataset) - int(len(dataset) * self.split_ratio)]
-        )
+
+        # === Train/Val split (still applied before DataLoader) ===
+        train_size = int(len(dataset) * self.split_ratio)
+        val_size = len(dataset) - train_size
+        train_set, val_set = random_split(dataset, [train_size, val_size])
+
+        # === Apply WeightedRandomSampler to train loader ===
+        if self.binary_labels:
+            labels_train = y_tensor[train_set.indices]
+            num_pos = (labels_train == 1).sum().item()
+            num_neg = (labels_train == 0).sum().item()
+
+            if num_pos == 0:
+                print(f"[Warning] No anomalies in chunk {os.path.basename(chunk_path)}")
+                sampler = None
+            else:
+                weights = (labels_train == 1).float() * (num_neg / (num_pos + 1e-6)) + 1.0
+                sampler = WeightedRandomSampler(weights, num_samples=len(labels_train), replacement=True)
+        else:
+            sampler = None
+
+        train_loader = DataLoader(train_set, batch_size=self.batch_size,
+                                sampler=sampler if sampler else None,
+                                shuffle=(sampler is None))
+        val_loader = DataLoader(val_set, batch_size=self.batch_size, shuffle=False)
+        return train_loader, val_loader
+
 
     def train_loader(self):
         for chunk_path in self.chunk_paths:
-            train_set, _ = self._load_sequences_from_chunk(chunk_path)
-            yield from DataLoader(train_set, batch_size=self.batch_size)
+            train_loader, _ = self._load_sequences_from_chunk(chunk_path)
+            yield from train_loader
 
     def val_loader(self):
         for chunk_path in self.chunk_paths:
-            _, val_set = self._load_sequences_from_chunk(chunk_path)
-            yield from DataLoader(val_set, batch_size=self.batch_size)
+            _, val_loader = self._load_sequences_from_chunk(chunk_path)
+            yield from val_loader
 
     def full_loader(self):
         for chunk_path in self.chunk_paths:
-            train_set, val_set = self._load_sequences_from_chunk(chunk_path)
-            full_dataset = torch.utils.data.ConcatDataset([train_set, val_set])
-            yield from DataLoader(full_dataset, batch_size=self.batch_size)
+            train_loader, val_loader = self._load_sequences_from_chunk(chunk_path)
+            for batch in train_loader:
+                yield batch
+            for batch in val_loader:
+                yield batch
+

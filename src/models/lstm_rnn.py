@@ -65,8 +65,16 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
+    # ✅ Count positives/negatives from generator to balance the loss
+    num_pos, num_neg = 0, 0
+    for _, y in train_loader():
+        num_pos += (y == 1).sum().item()
+        num_neg += (y == 0).sum().item()
+    ratio = num_neg / max(1, num_pos)
+    logging.info(f"[Info] pos_weight ratio = {ratio:.1f}")
+
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
-    pos_weight = torch.tensor([100.0], device=device)
+    pos_weight = torch.tensor([ratio], device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
     checkpoint_path = f"/workspace/checkpoints/lstm_lr{config['lr']}_h{config['hidden_size']}_l{config['num_layers']}.pth"
@@ -79,6 +87,7 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
     for epoch in range(start_epoch, epochs):
         model.train()
         logging.info(f"[LSTM] [Epoch {epoch+1}/{epochs}] 🔁 Training started...")
+
         for batch_num, (features, labels) in enumerate(train_loader(), 1):
             features, labels = features.to(device), labels.to(device)
             if labels.dim() == 3:
@@ -96,12 +105,13 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
         logging.info(f"[LSTM] [Epoch {epoch+1}] ✅ Done.")
         save_checkpoint(model, optimizer, epoch + 1, config, checkpoint_path)
 
+        # ✅ Updated F1 evaluation with threshold logging
         if return_best_f1:
             logging.info("[Eval] 🧪 Evaluating F1 for early stopping...")
             model.eval()
             m = quick_f1(model, val_loader, device)
-            precision, recall, f1 = m["Precision"], m["Recall"], m["F1"]
-            logging.info(f"[Eval] ✅ Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}")
+            precision, recall, f1, th = (m[k] for k in ("Precision", "Recall", "F1", "th"))
+            logging.info(f"[Eval] th={th:.2f}  F1={f1:.4f} | P={precision:.4f} | R={recall:.4f}")
 
             if f1 > best_f1:
                 best_f1 = f1
@@ -122,3 +132,4 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
         return model
 
     return best_f1 if return_best_f1 else model
+

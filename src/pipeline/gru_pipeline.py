@@ -32,7 +32,7 @@ def run_gru_pipeline(preprocess=False):
     chunk_dataset = SequenceChunkedDataset(
         chunk_dir=CHUNKS_LABELED_PATH,
         label_column='label',
-        batch_size=256,
+        batch_size=64,
         shuffle_files=True,
         binary_labels=True,
         sequence_length=1,
@@ -50,7 +50,7 @@ def run_gru_pipeline(preprocess=False):
     def train_func(config):
         return train_model(
             config=config,
-            train_loader=chunk_dataset.train_loader(),
+            train_loader=chunk_dataset.train_loader,
             val_loader_fn=chunk_dataset.val_loader,  # ← pass function, not generator
             input_size=input_size,
             return_best_f1=True
@@ -63,7 +63,7 @@ def run_gru_pipeline(preprocess=False):
     # ✅ Step 6: Final training using best config
     model = train_model(
         config=best_config,
-        train_loader=chunk_dataset.train_loader(),
+        train_loader=chunk_dataset.train_loader,
         val_loader_fn=chunk_dataset.val_loader,
         input_size=input_size,
         return_best_f1=False
