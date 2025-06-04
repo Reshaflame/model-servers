@@ -44,7 +44,7 @@ class SequenceChunkedDataset:
         self.input_size = len(self.feature_columns)
 
     def _load_sequences_from_chunk(self, chunk_path):
-        df = pd.read_csv(chunk_path)
+        df = pd.read_csv(chunk_path, engine="python")
 
         if df[self.feature_columns].select_dtypes(include="object").shape[1] > 0:
             print(f"[WARNING] ⚠️ Chunk {os.path.basename(chunk_path)} has non-numeric columns. They will be coerced to 0.")
@@ -81,7 +81,7 @@ class SequenceChunkedDataset:
                 pos_indices = (y_train == 1).nonzero(as_tuple=False)
                 if len(pos_indices) > 0:
                     # Take the first positive index from train and move it to val
-                    pos_idx_in_train = train_set.indices[pos_indices[0].item()]
+                    pos_idx_in_train = train_set.indices[pos_indices[0][0].item()]
                     train_set.indices.remove(pos_idx_in_train)
                     val_set.indices.append(pos_idx_in_train)
 
