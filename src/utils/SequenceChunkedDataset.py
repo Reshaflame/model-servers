@@ -72,6 +72,18 @@ class SequenceChunkedDataset:
         train_size = int(len(dataset) * self.split_ratio)
         val_size = len(dataset) - train_size
         train_set, val_set = random_split(dataset, [train_size, val_size])
+        # === Guarantee at least one anomaly in validation set ===
+        if self.binary_labels:
+            y_train = y_tensor[train_set.indices]
+            y_val   = y_tensor[val_set.indices]
+
+            if (y_val == 1).sum() == 0 and (y_train == 1).sum() > 0:
+                pos_indices = (y_train == 1).nonzero(as_tuple=False)
+                if len(pos_indices) > 0:
+                    # Take the first positive index from train and move it to val
+                    pos_idx_in_train = train_set.indices[pos_indices[0].item()]
+                    train_set.indices.remove(pos_idx_in_train)
+                    val_set.indices.append(pos_idx_in_train)
 
         # === Apply WeightedRandomSampler to train loader ===
         if self.binary_labels:

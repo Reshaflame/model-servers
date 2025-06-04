@@ -5,26 +5,39 @@ import os
 from utils.metrics import Metrics
 
 
-def quick_f1(model, val_loader, device, thresh_list=(0.5, 0.3, 0.1)):
+# --- utils/evaluator.py ---
+def quick_f1(model, val_loader_fn, device, default_th=0.5):
+    """
+    Runs one pass over val_loader_fn() and returns a dict with
+    Precision, Recall, F1, and th no matter what.
+    """
     m = Metrics()
-    y_true, logits = [], []
-    with torch.no_grad():
-        for x, y in val_loader():
-            x, y = x.to(device), y.to(device)
-            if x.dim() == 2:
-                x = x.unsqueeze(1)
-            logits.append(torch.sigmoid(model(x)).cpu())
-            y_true.append(y.cpu())
-    y_true  = torch.cat(y_true).numpy().flatten()
-    logits  = torch.cat(logits).numpy().flatten()
+    y_true, y_pred = [], []
 
-    best = {"F1":0}
-    for t in thresh_list:
-        preds = (logits > t).astype(int)
-        cur   = m.compute_standard_metrics(y_true, preds)
-        if cur["F1"] > best["F1"]:
-            best = cur | {"th":t}
-    return best
+    with torch.no_grad():
+        for x, y in val_loader_fn():
+            x, y = x.to(device), y.to(device)
+            if x.dim() == 2:  # GRU case
+                x = x.unsqueeze(1)
+            probs = torch.sigmoid(model(x)).flatten()
+            preds = (probs > default_th).float()
+
+            y_true.extend(y.cpu().numpy().flatten())
+            y_pred.extend(preds.cpu().numpy().flatten())
+
+    if len(set(y_true)) < 2:       # no positives or no negatives
+        # Avoid sklearn warnings / errors
+        precision = recall = f1 = 0.0
+    else:
+        metrics = m.compute_standard_metrics(y_true, y_pred)
+        precision, recall, f1 = (
+            metrics["Precision"],
+            metrics["Recall"],
+            metrics["F1"],
+        )
+
+    return {"Precision": precision, "Recall": recall, "F1": f1, "th": default_th}
+
 
 
 def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_truth=False):

@@ -103,12 +103,16 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
             model.eval()
 
             metrics_dict = quick_f1(model, val_loader_fn, device)
-            precision, recall, f1, th = (metrics_dict[k] for k in ("Precision", "Recall", "F1", "th"))
+            precision  = metrics_dict["Precision"]
+            recall     = metrics_dict["Recall"]
+            f1_score_  = metrics_dict["F1"]
+            th         = metrics_dict["th"]
 
-            print(f"[Eval] th={th:.2f}  F1={f1:.4f} | P={precision:.4f} | R={recall:.4f}")
+            print(f"[Eval] th={th:.2f}  F1={f1_score_:.4f} | P={precision:.4f} | R={recall:.4f}")
 
-            if f1 > best_f1:
-                best_f1 = f1
+
+            if f1_score_ > best_f1:
+                best_f1 = f1_score_
                 patience_counter = 0
                 print("🎯 New best F1 found!", flush=True)
             else:

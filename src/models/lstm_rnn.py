@@ -109,12 +109,17 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
         if return_best_f1:
             logging.info("[Eval] 🧪 Evaluating F1 for early stopping...")
             model.eval()
-            m = quick_f1(model, val_loader, device)
-            precision, recall, f1, th = (m[k] for k in ("Precision", "Recall", "F1", "th"))
-            logging.info(f"[Eval] th={th:.2f}  F1={f1:.4f} | P={precision:.4f} | R={recall:.4f}")
+            metrics_dict = quick_f1(model, val_loader, device)
+            precision  = metrics_dict["Precision"]
+            recall     = metrics_dict["Recall"]
+            f1_score_  = metrics_dict["F1"]     # avoid shadowing builtin f1_score
+            th         = metrics_dict["th"]
 
-            if f1 > best_f1:
-                best_f1 = f1
+            print(f"[Eval] th={th:.2f}  F1={f1_score_:.4f} | P={precision:.4f} | R={recall:.4f}")
+
+
+            if f1_score_ > best_f1:
+                best_f1 = f1_score_
                 patience_counter = 0
                 logging.info("🎯 New best F1 found!")
             else:
