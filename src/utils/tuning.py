@@ -3,7 +3,7 @@
 from itertools import product
 import logging
 from skopt import gp_minimize
-import json
+import traceback
 import ray
 from ray import tune
 from ray.tune.schedulers import ASHAScheduler
@@ -24,6 +24,7 @@ def manual_gru_search(train_func, param_grid):
                     best_config = config
             except Exception as e:
                 print(f"❌ Error with config {config}: {e}")
+                traceback.print_exc()
                 continue
         return best_config
 
