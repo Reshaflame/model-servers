@@ -81,7 +81,7 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
         model.train()
         print(f"[Debug] 🏁 Epoch {epoch+1}/{epochs} started", flush=True)
 
-        for batch_num, (batch_features, batch_labels) in enumerate(train_loader):
+        for batch_num, (batch_features, batch_labels) in enumerate(train_loader(), 1):
             if batch_num % 1000 == 0:
                 print(f"[Debug] ⛏️  Training batch {batch_num}", flush=True)
 
