@@ -4,7 +4,7 @@ from models.gru import train_model
 from preprocess.labeledPreprocess import preprocess_labeled_data_chunked
 from utils.evaluator import evaluate_and_export
 from utils.model_exporter import export_model
-from utils.chunked_dataset import ChunkedCSVDataset
+from utils.SequenceChunkedDataset import SequenceChunkedDataset
 from utils.constants import CHUNKS_LABELED_PATH
 from glob import glob
 import pandas as pd
@@ -29,12 +29,14 @@ def run_gru_pipeline(preprocess=False):
     input_size = len(expected_features)
 
     # ✅ Step 2: Create the chunked dataset with aligned features
-    chunk_dataset = ChunkedCSVDataset(
-        chunk_dir=chunk_dir,
-        chunk_size=5000,
-        label_col='label',
-        device='cuda' if torch.cuda.is_available() else 'cpu',
-        expected_features=expected_features
+    chunk_dataset = SequenceChunkedDataset(
+        chunk_dir=CHUNKS_LABELED_PATH,
+        label_column='label',
+        batch_size=256,
+        shuffle_files=True,
+        binary_labels=False,      # we will keep anomaly=1 after Step 1
+        sequence_length=1,        # GRU still wants single-timestep
+        device='cuda' if torch.cuda.is_available() else 'cpu'
     )
 
     # ✅ Step 3: Define manual hyperparameter grid

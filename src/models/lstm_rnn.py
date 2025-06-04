@@ -5,6 +5,7 @@ import torch.nn as nn
 import logging
 import numpy as np
 from utils.model_exporter import export_model
+from utils.evaluator import quick_f1
 
 class LSTM_RNN_Hybrid(nn.Module):
     def __init__(self, input_size, hidden_size=64, num_layers=1, output_size=1):
@@ -40,7 +41,6 @@ def load_checkpoint(model, optimizer, path):
     return checkpoint["epoch"]
 
 def train_model(config, train_loader, val_loader, input_size, return_best_f1=False):
-    
     # ✅ Init logging only during training
     os.makedirs("/workspace/logs", exist_ok=True)
     formatter = logging.Formatter("%(asctime)s [LSTM] [%(levelname)s] %(message)s")
@@ -96,6 +96,22 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
         logging.info(f"[LSTM] [Epoch {epoch+1}] ✅ Done.")
         save_checkpoint(model, optimizer, epoch + 1, config, checkpoint_path)
 
+        if return_best_f1:
+            logging.info("[Eval] 🧪 Evaluating F1 for early stopping...")
+            model.eval()
+            precision, recall, f1 = quick_f1(model, val_loader, device)
+            logging.info(f"[Eval] ✅ Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}")
+
+            if f1 > best_f1:
+                best_f1 = f1
+                patience_counter = 0
+                logging.info("🎯 New best F1 found!")
+            else:
+                patience_counter += 1
+                if patience_counter >= config.get("early_stop_patience", 2):
+                    logging.info("🛑 Early stopping triggered.")
+                    break
+
     if not return_best_f1:
         logging.info("[LSTM] ✅ Skipping in-memory evaluation — handled separately.")
         try:
@@ -104,37 +120,4 @@ def train_model(config, train_loader, val_loader, input_size, return_best_f1=Fal
             logging.error(f"[Export] ❌ Failed to export model: {e}")
         return model
 
-    # === Lightweight F1 Eval ===
-    logging.info("[Eval] 🔍 Running F1 evaluation...")
-    model.eval()
-    val_loss = 0
-    tp = fp = fn = 0
-
-    with torch.no_grad():
-        for batch_id, (features, labels) in enumerate(val_loader(), 1):
-            features, labels = features.to(device), labels.to(device)
-            if labels.dim() == 3:
-                labels = labels.squeeze(-1)
-
-            logits = model(features)
-            loss = criterion(logits, labels)
-            val_loss += loss.item()
-
-            probs = torch.sigmoid(logits)
-            preds = (probs > 0.5).float().cpu().numpy().flatten()
-            labels_np = labels.cpu().numpy().flatten()
-
-            tp += np.logical_and(preds == 1, labels_np == 1).sum()
-            fp += np.logical_and(preds == 1, labels_np == 0).sum()
-            fn += np.logical_and(preds == 0, labels_np == 1).sum()
-
-            if batch_id % 100 == 0:
-                logging.info(f"   └─ [Eval] Processed {batch_id} batches")
-
-    val_loss /= max(1, batch_id)
-    precision = tp / (tp + fp + 1e-8)
-    recall    = tp / (tp + fn + 1e-8)
-    f1        = 2 * precision * recall / (precision + recall + 1e-8)
-
-    logging.info(f"[Eval] ✅ Precision: {precision:.4f}, Recall: {recall:.4f}, F1: {f1:.4f}, Loss: {val_loss:.6f}")
-    return f1 if return_best_f1 else model
+    return best_f1 if return_best_f1 else model

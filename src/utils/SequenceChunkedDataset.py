@@ -50,7 +50,7 @@ class SequenceChunkedDataset:
             print(f"[WARNING] ⚠️ Chunk {os.path.basename(chunk_path)} has non-numeric columns. They will be coerced to 0.")
 
         if self.binary_labels:
-            df[self.label_column] = (df[self.label_column] != -1).astype(float)
+            df[self.label_column] = (df[self.label_column] == -1).astype(float)
 
         features = df[self.feature_columns].apply(pd.to_numeric, errors='coerce').fillna(0.0).values
         labels = pd.to_numeric(df[self.label_column], errors='coerce').fillna(0.0).values

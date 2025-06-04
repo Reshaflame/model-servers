@@ -2,6 +2,22 @@
 import torch
 import numpy as np
 import os
+from utils.metrics import Metrics
+
+
+def quick_f1(model, val_loader, device):
+    m = Metrics()
+    y_true, y_pred = [], []
+    with torch.no_grad():
+        for x, y in val_loader():
+            x, y = x.to(device), y.to(device)
+            if x.dim() == 2:  # GRU or flat input
+                x = x.unsqueeze(1)
+            preds = (torch.sigmoid(model(x)) > 0.5).float()
+            y_true.extend(y.cpu().numpy().flatten())
+            y_pred.extend(preds.cpu().numpy().flatten())
+    return m.compute_standard_metrics(y_true, y_pred)
+
 
 def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_truth=False):
     print(f"[DEBUG] 🧠 Running evaluate_and_export() from src/utils/evaluator.py for model: {model_name}")
