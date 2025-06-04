@@ -42,7 +42,8 @@ def evaluate_model(model, test_loader, device):
     return results
 
 def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=False):
-    print(f"[Debug] 🔧 Entered train_model() with config: {config}")
+    print("[Debug] 🔧 Entered train_model() with config:", config)
+
     model = GRUAnomalyDetector(
         input_size=input_size,
         hidden_size=config["hidden_size"],
@@ -52,7 +53,7 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=config["lr"])
-    pos_weight = torch.tensor([100.0], device=device)  # ✅ Default weight
+    pos_weight = torch.tensor([100.0], device=device)
     criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
     best_f1 = 0
@@ -60,13 +61,15 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
     early_stop_patience = config.get("early_stop_patience", 2)
     patience_counter = 0
 
-    # ✅ Debug: Check validation distribution before training
-    all_val_labels = []
-    for _, labels in val_loader_fn():
-        all_val_labels.extend(labels.cpu().numpy().flatten())
-    unique, counts = np.unique(all_val_labels, return_counts=True)
-    print("[Debug] Validation Label Distribution:", dict(zip(unique, counts)))
-
+    # ✅ Validation label distribution debug (fresh generator call)
+    try:
+        all_val_labels = []
+        for _, labels in val_loader_fn():
+            all_val_labels.extend(labels.cpu().numpy().flatten())
+        unique, counts = np.unique(all_val_labels, return_counts=True)
+        print("[Debug] Validation Label Distribution:", dict(zip(unique, counts)))
+    except Exception as e:
+        print("[Warning] Could not fetch val label distribution:", e)
 
     for epoch in range(epochs):
         model.train()
@@ -90,7 +93,7 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
             y_true, y_pred = [], []
 
             with torch.no_grad():
-                for batch_id, (features, labels) in enumerate(val_loader_fn(), 1):
+                for batch_id, (features, labels) in enumerate(val_loader_fn(), 1):  # 🔁 Fresh call
                     features = features.float().to(device)
                     labels = labels.float().to(device)
                     if features.dim() == 2:
@@ -98,7 +101,7 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
                     preds = torch.sigmoid(model(features))
                     preds_bin = (preds > 0.5).float()
 
-                    if batch_id == 1:  # ✅ Print sample for debugging
+                    if batch_id == 1:
                         print("[Eval Debug] Logits:", preds[:5].squeeze().cpu().numpy())
                         print("[Eval Debug] Labels:", labels[:5].cpu().numpy())
 
@@ -122,3 +125,4 @@ def train_model(config, train_loader, val_loader_fn, input_size, return_best_f1=
                     break
 
     return best_f1 if return_best_f1 else model
+
