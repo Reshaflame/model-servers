@@ -44,68 +44,96 @@ class SequenceChunkedDataset:
         self.input_size = len(self.feature_columns)
 
     def _load_sequences_from_chunk(self, chunk_path):
+        # ------------------------------------------------------
+        # 1) Load CSV (python engine avoids rare tokenising errors)
+        # ------------------------------------------------------
         df = pd.read_csv(chunk_path, engine="python")
 
+        # Warn if still any non-numerics sneaked in
         if df[self.feature_columns].select_dtypes(include="object").shape[1] > 0:
-            print(f"[WARNING] ⚠️ Chunk {os.path.basename(chunk_path)} has non-numeric columns. They will be coerced to 0.")
+            print(f"[WARNING] ⚠️  {os.path.basename(chunk_path)} "
+                  "contains non-numeric cols – coerced to 0.")
 
+        # ------------------------------------------------------
+        # 2) Label  →  1 (anomaly) / 0 (normal)
+        # ------------------------------------------------------
         if self.binary_labels:
             df[self.label_column] = (df[self.label_column] == -1).astype(float)
 
-        features = df[self.feature_columns].apply(pd.to_numeric, errors='coerce').fillna(0.0).values
-        labels = pd.to_numeric(df[self.label_column], errors='coerce').fillna(0.0).values
+        # ------------------------------------------------------
+        # 3) Build sequences
+        # ------------------------------------------------------
+        feats = (df[self.feature_columns]
+                 .apply(pd.to_numeric, errors="coerce")
+                 .fillna(0.0)
+                 .values)
+        labels = df[self.label_column].values
 
         X_seq, y_seq = [], []
-        for i in range(len(features) - self.sequence_length):
-            X_seq.append(features[i:i+self.sequence_length])
+        for i in range(len(feats) - self.sequence_length):
+            X_seq.append(feats[i:i + self.sequence_length])
             y_seq.append(labels[i + self.sequence_length - 1])
 
-        X_seq = np.array(X_seq, dtype=np.float32)
-        y_seq = np.array(y_seq, dtype=np.float32)
-
-        X_tensor = torch.tensor(X_seq, dtype=torch.float32, device=self.device)
-        y_tensor = torch.tensor(y_seq, dtype=torch.float32, device=self.device).unsqueeze(1)
+        X_tensor = torch.tensor(np.asarray(X_seq,  dtype=np.float32),
+                                device=self.device)
+        y_tensor = torch.tensor(np.asarray(y_seq,  dtype=np.float32),
+                                device=self.device).unsqueeze(1)  # (N,1)
 
         dataset = TensorDataset(X_tensor, y_tensor)
 
-        # === Train/Val split (still applied before DataLoader) ===
-        train_size = int(len(dataset) * self.split_ratio)
-        val_size = len(dataset) - train_size
-        train_set, val_set = random_split(dataset, [train_size, val_size])
-        # === Guarantee at least one anomaly in validation set ===
+        # ------------------------------------------------------
+        # 4) Train / Val split  (random_split stores *indices*)
+        # ------------------------------------------------------
+        train_len = int(len(dataset) * self.split_ratio)
+        val_len   = len(dataset) - train_len
+        train_set, val_set = random_split(dataset, [train_len, val_len])
+
+        # ----  Guarantee ≥1 anomaly in validation split  -----
         if self.binary_labels:
             y_train = y_tensor[train_set.indices]
             y_val   = y_tensor[val_set.indices]
 
             if (y_val == 1).sum() == 0 and (y_train == 1).sum() > 0:
-                pos_indices = (y_train == 1).nonzero(as_tuple=False)
-                if len(pos_indices) > 0:
-                    # Take the first positive index from train and move it to val
-                    pos_idx_in_train = train_set.indices[pos_indices[0][0].item()]
-                    train_set.indices.remove(pos_idx_in_train)
-                    val_set.indices.append(pos_idx_in_train)
+                # absolute index of the first positive inside train_set
+                pos_abs_idx = train_set.indices[(y_train == 1)
+                                                .nonzero(as_tuple=False)[0, 0]
+                                                .item()]
+                train_set.indices.remove(pos_abs_idx)
+                val_set.indices.append(pos_abs_idx)
 
-        # === Apply WeightedRandomSampler to train loader ===
+        # ------------------------------------------------------
+        # 5) WeightedRandomSampler on *train* loader
+        # ------------------------------------------------------
+        sampler = None
         if self.binary_labels:
-            labels_train = y_tensor[train_set.indices]
-            num_pos = (labels_train == 1).sum().item()
-            num_neg = (labels_train == 0).sum().item()
+            lbl_train = y_tensor[train_set.indices]
+            num_pos   = int((lbl_train == 1).sum().item())
+            num_neg   = int((lbl_train == 0).sum().item())
 
             if num_pos == 0:
-                print(f"[Warning] No anomalies in chunk {os.path.basename(chunk_path)}")
-                sampler = None
+                print(f"[Warning] No anomalies in {os.path.basename(chunk_path)}")
             else:
-                weights = (labels_train == 1).float() * (num_neg / (num_pos + 1e-6)) + 1.0
-                weights = weights.squeeze()  # ✅ FIX: make sure shape is (N,)
-                sampler = WeightedRandomSampler(weights, num_samples=len(labels_train), replacement=True)
-        else:
-            sampler = None
+                # weight  =  (#neg / #pos)  for positive samples,  1.0 for normal
+                weights = (lbl_train == 1).float() * (num_neg / (num_pos + 1e-6)) + 1.0
+                weights = weights.squeeze()          # (N,)  → required by sampler
+                sampler = WeightedRandomSampler(weights,
+                                                num_samples=len(weights),
+                                                replacement=True)
 
-        train_loader = DataLoader(train_set, batch_size=self.batch_size,
-                                sampler=sampler if sampler else None,
-                                shuffle=(sampler is None))
-        val_loader = DataLoader(val_set, batch_size=self.batch_size, shuffle=False)
+        # ------------------------------------------------------
+        # 6) DataLoaders
+        # ------------------------------------------------------
+        train_loader = DataLoader(train_set,
+                                  batch_size=self.batch_size,
+                                  sampler=sampler,
+                                  shuffle=sampler is None)
+
+        val_loader   = DataLoader(val_set,
+                                  batch_size=self.batch_size,
+                                  shuffle=False)
+
         return train_loader, val_loader
+
 
 
     def train_loader(self):
