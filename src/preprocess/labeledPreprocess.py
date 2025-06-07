@@ -95,10 +95,9 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                     print(f"[Chunk {chunk_id}] ⚠️ Empty after dropna/casting; skipping.")
                     continue
                 
-                dom = row.src_domain
+                domains = row.src_domain
 
                 print(f"[Chunk {chunk_id}] 🏷️ Columns: {df.columns.tolist()}")
-
 
                 for row_idx, row in df.iterrows():
                     if row_idx % 10000 == 0:
