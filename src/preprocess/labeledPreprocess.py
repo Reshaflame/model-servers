@@ -72,7 +72,7 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                 seen_orient.update(df.auth_orientation.unique())
                 
                 for row_idx, row in df.iterrows():
-                    u, pc, t = row.src_user, row.src_comp, int(row.time)
+                    u, pc, t = row.src_user, row.src_comp, row.time
                     dom = domains.iloc[row_idx]
 
                     df.at[row_idx, "user_freq"]   = freq_user.get(u, 0)
