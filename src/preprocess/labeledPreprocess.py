@@ -42,6 +42,11 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
             try:
                 chunk_id += 1
                 df = df.drop(columns=["datetime"])
+                df = df.dropna(subset=["time", "src_user", "src_comp"])   # ← NEW
+                df["time"] = df["time"].astype(int)                       # ← NEW, safe cast
+                if df.empty:
+                    print(f"[Chunk {chunk_id}] ⚠️ Empty after dropna; skipping.")
+                    continue
                 df["label"] = df.apply(lambda r: (r.time,r.src_user,
                                                 r.src_comp,r.dst_comp) in red_set,
                                         axis=1).astype(np.float32)
