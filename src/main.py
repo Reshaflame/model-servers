@@ -1,5 +1,6 @@
 import os
 import sys
+import subprocess
 
 # ─── Thread & Ray limits ──────────────────────────────────────────
 os.environ["OMP_NUM_THREADS"]           = "1"
