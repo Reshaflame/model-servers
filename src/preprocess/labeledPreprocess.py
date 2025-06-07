@@ -57,10 +57,11 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
 
                 # ---------- derive features ----------
                 df["utc_hour"] = (df.time // 3600) % 24
-                df["src_domain"] = domains
+                df["src_domain"] = df["src_user"].str.split("@").str[-1]
+
 
                 # frequencies BEFORE current row
-                df["user_freq"]  = domains.values  # placeholder; will fill below
+                df["user_freq"]  = 0 
                 df["pc_freq"]    = 0
                 df["pair_freq"]  = 0
                 df["domain_freq"] = 0
@@ -99,7 +100,7 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                         print(f"[Chunk {chunk_id}] Processing row {row_idx}/{len(df)}...")
 
                     u, pc, t = row.src_user, row.src_comp, row.time
-                    dom = row.src_domain  # ← no need for indexing anymore ✅
+                    dom = row.src_domain
 
                     df.at[row_idx, "user_freq"]   = freq_user.get(u, 0)
                     df.at[row_idx, "pc_freq"]     = freq_pc.get(pc, 0)
