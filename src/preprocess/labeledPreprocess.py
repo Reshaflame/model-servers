@@ -69,7 +69,10 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                 df["logins_1h_user"] = 0
                 df["fails_1h_user"]  = 0
                 df["fail_ratio_1h"]  = 0.0
-                
+
+                # Normalize 'success' column: map 'Success' → 1, 'Failure' → 0
+                df["success"] = df["success"].map({"Success": 1, "Failure": 0}).fillna(0).astype(int)
+
                 # ⬇️  collect categorical values for the meta maps
                 seen_auth.update(df.auth_type.unique())
                 seen_logon.update(df.logon_type.unique())
@@ -77,7 +80,6 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                 
                 # debug prints:
                 print(f"[Chunk {chunk_id}] 🧪 Rows before dropna: {len(df)}")
-                df = df.dropna(subset=["time", "src_user", "src_comp"])
                 print(f"[Chunk {chunk_id}] 🧼 Rows after dropna: {len(df)}")
 
                 # Ensure time is castable
