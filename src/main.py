@@ -36,7 +36,7 @@ def preprocess_labeled():
         print("[Preprocess] ✅ Labeled data already preprocessed. Skipping.")
     else:
         print("[Preprocess] 🔄 Running labeled data preprocessing...")
-        os.system(f"{sys.executable} -m preprocess.labeledPreprocess")
+        os.system(f"cd src && {sys.executable} -m preprocess.unlabeledPreprocess")
 
 # def preprocess_unlabeled():
 #     if chunks_exist(UNLABELED_DIR):
