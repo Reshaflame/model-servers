@@ -5,13 +5,15 @@ from utils.chunk_archiver import zip_chunks
 from collections import defaultdict, deque
 import numpy as np
 
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+DATA_DIR = os.path.join(ROOT_DIR, "data")
 CHUNK_SIZE = 250_000          # keeps RAM < 1.5 GB on Runpod 8 GB node
 ROLL_WINDOW = 3600            # seconds
 COUNTS_DB   = "tmp/freq.db"   # on-disk key-value store
 
-def preprocess_labeled_data_chunked(auth_gz='data/auth.txt.gz',
-                                    red_gz='data/redteam.txt.gz',
-                                    out_dir='data/chunks_labeled'):
+def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"),
+                                    red_gz=os.path.join(DATA_DIR, "redteam.txt.gz"),
+                                    out_dir=os.path.join(DATA_DIR, "chunks_labeled")):
 
     os.makedirs(out_dir, exist_ok=True)
     # ---------- build redteam lookup ----------

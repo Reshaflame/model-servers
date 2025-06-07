@@ -1,6 +1,8 @@
 import json, csv, gzip, os
 
-META_DIR = "data/meta"; os.makedirs(META_DIR, exist_ok=True)
+ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
+META_DIR = os.path.join(ROOT_DIR, "data", "meta")
+os.makedirs(META_DIR, exist_ok=True)
 
 def save_category_maps(auth_types, logon_types, orientations):
     with open(f"{META_DIR}/auth_type_map.json","w") as f:
