@@ -77,7 +77,6 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                 
                 # debug prints:
                 print(f"[Chunk {chunk_id}] 🧪 Rows before dropna: {len(df)}")
-                df = df.drop(columns=["datetime"])
                 df = df.dropna(subset=["time", "src_user", "src_comp"])
                 print(f"[Chunk {chunk_id}] 🧼 Rows after dropna: {len(df)}")
 
