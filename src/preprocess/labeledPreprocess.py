@@ -58,7 +58,8 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                 # ---------- derive features ----------
                 df["utc_hour"] = (df.time // 3600) % 24
 
-                domains = df.src_user.str.split("@").str[-1]
+                df["src_domain"] = df["src_user"].str.split("@").str[-1]
+
                 df["src_domain"] = domains
 
                 # frequencies BEFORE current row
@@ -93,15 +94,21 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                 if df.empty:
                     print(f"[Chunk {chunk_id}] ⚠️ Empty after dropna/casting; skipping.")
                     continue
+                
+                dom = row.src_domain
 
                 print(f"[Chunk {chunk_id}] 🏷️ Columns: {df.columns.tolist()}")
 
 
                 for row_idx, row in df.iterrows():
+                    if row_idx % 10000 == 0:
+                        print(f"[Chunk {chunk_id}] Processing row {row_idx}/{len(df)}...")
+
                     u, pc, t = row.src_user, row.src_comp, row.time
 
                     if row_idx >= len(domains):
-                        print(f"[Chunk {chunk_id}] ❌ Invalid index: {row_idx} >= {len(domains)}")
+                        if row_idx % 10000 == 0:
+                            print(f"[Chunk {chunk_id}] ⚠️ Skipping row {row_idx} (index > domains)")
                         continue
 
                     dom = domains.iloc[row_idx]
