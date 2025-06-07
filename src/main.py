@@ -38,12 +38,12 @@ def preprocess_labeled():
         print("[Preprocess] 🔄 Running labeled data preprocessing...")
         os.system("python src/preprocess/labeledPreprocess.py")   # default out_dir is data/chunks_labeled
 
-def preprocess_unlabeled():
-    if chunks_exist(UNLABELED_DIR):
-        print("[Preprocess] ✅ Unlabeled data already preprocessed. Skipping.")
-    else:
-        print("[Preprocess] 🔄 Running unlabeled data preprocessing...")
-        os.system("python src/preprocess/unlabeledPreprocess.py") # default out_dir is data/chunks_unlabeled
+# def preprocess_unlabeled():
+#     if chunks_exist(UNLABELED_DIR):
+#         print("[Preprocess] ✅ Unlabeled data already preprocessed. Skipping.")
+#     else:
+#         print("[Preprocess] 🔄 Running unlabeled data preprocessing...")
+#         os.system("python src/preprocess/unlabeledPreprocess.py") # default out_dir is data/chunks_unlabeled
 
 # -----------------------------------------------------------------
 # CLI
@@ -51,7 +51,7 @@ def preprocess_unlabeled():
 MENU = """
 📊 TrueDetect CLI – Select an option:
 1. Preprocess Labeled Data
-2. Preprocess Unlabeled Data
+2. Preprocess Unlabeled Data (deprecated)
 3. Train GRU
 4. Train LSTM+RNN
 5. Evaluate Isolation Forest
@@ -66,8 +66,6 @@ def main():
 
         if choice == "1":
             preprocess_labeled()
-        elif choice == "2":
-            preprocess_unlabeled()
         elif choice == "3":
             run_gru_pipeline(preprocess=False)
         elif choice == "4":
