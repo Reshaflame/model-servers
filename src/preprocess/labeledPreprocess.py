@@ -70,10 +70,10 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                     u, pc, t = row.src_user, row.src_comp, int(row.time)
                     dom = domains.iloc[row_idx]
 
-                    df.at[i,"user_freq"]   = freq_user.get(u,0)
-                    df.at[i,"pc_freq"]     = freq_pc.get(pc,0)
-                    df.at[i,"pair_freq"]   = freq_pair.get(f"{u}|{pc}",0)
-                    df.at[i,"domain_freq"] = freq_dom.get(dom,0)
+                    df.at[row_idx, "user_freq"]   = freq_user.get(u, 0)
+                    df.at[row_idx, "pc_freq"]     = freq_pc.get(pc, 0)
+                    df.at[row_idx, "pair_freq"]   = freq_pair.get(f"{u}|{pc}", 0)
+                    df.at[row_idx, "domain_freq"] = freq_dom.get(dom, 0)
 
                     # rolling window update
                     q = windows[u]
@@ -81,9 +81,9 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                     while q and t - q[0][0] > ROLL_WINDOW: q.popleft()
                     logins = len(q)
                     fails  = sum(1 for ts,fail in q if fail)
-                    df.at[i,"logins_1h_user"] = logins
-                    df.at[i,"fails_1h_user"]  = fails
-                    df.at[i,"fail_ratio_1h"]  = fails / (logins+1)
+                    df.at[row_idx, "logins_1h_user"] = logins
+                    df.at[row_idx, "fails_1h_user"]  = fails
+                    df.at[row_idx, "fail_ratio_1h"]  = fails / (logins + 1)
 
                     # append current event
                     q.append((t, 1-int(row.success)))  # success==1→fail flag 0
