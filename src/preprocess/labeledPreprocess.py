@@ -32,8 +32,8 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
     # rolling stats: {user: deque[(timestamp, is_fail)]}
     windows = defaultdict(deque)
 
-    col_names = ["time","src_user","dst_user","src_comp","dst_comp",
-                 "auth_type","logon_type","auth_orientation","success"]
+    col_names = ["time","datetime","src_user","dst_user","src_comp","dst_comp",
+             "auth_type","logon_type","auth_orientation","success"]
     seen_auth, seen_logon, seen_orient = set(), set(), set()
     chunk_id = -1
     num_chunks_saved = 0
@@ -41,6 +41,7 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
         for df in pd.read_csv(f, names=col_names, chunksize=CHUNK_SIZE):
             try:
                 chunk_id += 1
+                df = df.drop(columns=["datetime"])
                 df["label"] = df.apply(lambda r: (r.time,r.src_user,
                                                 r.src_comp,r.dst_comp) in red_set,
                                         axis=1).astype(np.float32)
@@ -65,8 +66,9 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                 seen_logon.update(df.logon_type.unique())
                 seen_orient.update(df.auth_orientation.unique())
                 
-                for i, row in df.iterrows():
-                    u, pc, t, dom = row.src_user, row.src_comp, int(row.time), domains.iloc[i]
+                for row_idx, row in df.iterrows():
+                    u, pc, t = row.src_user, row.src_comp, int(row.time)
+                    dom = domains.iloc[row_idx]
 
                     df.at[i,"user_freq"]   = freq_user.get(u,0)
                     df.at[i,"pc_freq"]     = freq_pc.get(pc,0)
