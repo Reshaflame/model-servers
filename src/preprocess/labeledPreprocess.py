@@ -35,64 +35,69 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                  "auth_type","logon_type","auth_orientation","success"]
     seen_auth, seen_logon, seen_orient = set(), set(), set()
     chunk_id = -1
+    num_chunks_saved = 0
     with gzip.open(auth_gz,'rt') as f:
         for df in pd.read_csv(f, names=col_names, chunksize=CHUNK_SIZE):
-            chunk_id += 1
-            df["label"] = df.apply(lambda r: (r.time,r.src_user,
-                                              r.src_comp,r.dst_comp) in red_set,
-                                    axis=1).astype(np.float32)
+            try:
+                chunk_id += 1
+                df["label"] = df.apply(lambda r: (r.time,r.src_user,
+                                                r.src_comp,r.dst_comp) in red_set,
+                                        axis=1).astype(np.float32)
 
-            # ---------- derive features ----------
-            df["utc_hour"] = (df.time // 3600) % 24
+                # ---------- derive features ----------
+                df["utc_hour"] = (df.time // 3600) % 24
 
-            domains = df.src_user.str.split("@").str[-1]
-            df["src_domain"] = domains
+                domains = df.src_user.str.split("@").str[-1]
+                df["src_domain"] = domains
 
-            # frequencies BEFORE current row
-            df["user_freq"]  = domains.values  # placeholder; will fill below
-            df["pc_freq"]    = 0
-            df["pair_freq"]  = 0
-            df["domain_freq"] = 0
-            df["logins_1h_user"] = 0
-            df["fails_1h_user"]  = 0
-            df["fail_ratio_1h"]  = 0.0
-            
-            # ⬇️  collect categorical values for the meta maps
-            seen_auth.update(df.auth_type.unique())
-            seen_logon.update(df.logon_type.unique())
-            seen_orient.update(df.auth_orientation.unique())
-            
-            for i, row in df.iterrows():
-                u, pc, t, dom = row.src_user, row.src_comp, int(row.time), domains.iloc[i]
+                # frequencies BEFORE current row
+                df["user_freq"]  = domains.values  # placeholder; will fill below
+                df["pc_freq"]    = 0
+                df["pair_freq"]  = 0
+                df["domain_freq"] = 0
+                df["logins_1h_user"] = 0
+                df["fails_1h_user"]  = 0
+                df["fail_ratio_1h"]  = 0.0
+                
+                # ⬇️  collect categorical values for the meta maps
+                seen_auth.update(df.auth_type.unique())
+                seen_logon.update(df.logon_type.unique())
+                seen_orient.update(df.auth_orientation.unique())
+                
+                for i, row in df.iterrows():
+                    u, pc, t, dom = row.src_user, row.src_comp, int(row.time), domains.iloc[i]
 
-                df.at[i,"user_freq"]   = freq_user.get(u,0)
-                df.at[i,"pc_freq"]     = freq_pc.get(pc,0)
-                df.at[i,"pair_freq"]   = freq_pair.get(f"{u}|{pc}",0)
-                df.at[i,"domain_freq"] = freq_dom.get(dom,0)
+                    df.at[i,"user_freq"]   = freq_user.get(u,0)
+                    df.at[i,"pc_freq"]     = freq_pc.get(pc,0)
+                    df.at[i,"pair_freq"]   = freq_pair.get(f"{u}|{pc}",0)
+                    df.at[i,"domain_freq"] = freq_dom.get(dom,0)
 
-                # rolling window update
-                q = windows[u]
-                # drop events older than 1h
-                while q and t - q[0][0] > ROLL_WINDOW: q.popleft()
-                logins = len(q)
-                fails  = sum(1 for ts,fail in q if fail)
-                df.at[i,"logins_1h_user"] = logins
-                df.at[i,"fails_1h_user"]  = fails
-                df.at[i,"fail_ratio_1h"]  = fails / (logins+1)
+                    # rolling window update
+                    q = windows[u]
+                    # drop events older than 1h
+                    while q and t - q[0][0] > ROLL_WINDOW: q.popleft()
+                    logins = len(q)
+                    fails  = sum(1 for ts,fail in q if fail)
+                    df.at[i,"logins_1h_user"] = logins
+                    df.at[i,"fails_1h_user"]  = fails
+                    df.at[i,"fail_ratio_1h"]  = fails / (logins+1)
 
-                # append current event
-                q.append((t, 1-int(row.success)))  # success==1→fail flag 0
+                    # append current event
+                    q.append((t, 1-int(row.success)))  # success==1→fail flag 0
 
-                # increment global counters *after* feature capture
-                freq_user[u] = freq_user.get(u,0)+1
-                freq_pc[pc]  = freq_pc.get(pc,0)+1
-                freq_pair[f"{u}|{pc}"] = freq_pair.get(f"{u}|{pc}",0)+1
-                freq_dom[dom] = freq_dom.get(dom,0)+1
+                    # increment global counters *after* feature capture
+                    freq_user[u] = freq_user.get(u,0)+1
+                    freq_pc[pc]  = freq_pc.get(pc,0)+1
+                    freq_pair[f"{u}|{pc}"] = freq_pair.get(f"{u}|{pc}",0)+1
+                    freq_dom[dom] = freq_dom.get(dom,0)+1
 
-            # ---------- persist to CSV ----------
-            out = os.path.join(out_dir, f"chunk_{chunk_id:04d}_labeled_feat.csv")
-            df.drop(columns=["src_domain"]).to_csv(out, index=False)
-            print(f"[Chunk {chunk_id}] ➜ {out}")
+                # ---------- persist to CSV ----------
+                out = os.path.join(out_dir, f"chunk_{chunk_id:04d}_labeled_feat.csv")
+                df.drop(columns=["src_domain"]).to_csv(out, index=False)
+                num_chunks_saved += 1
+                print(f"[Chunk {chunk_id}] ➜ {out}")
+            except Exception as e:
+                print(f"[Chunk {chunk_id}] ❌ Failed: {e}")
    
     # ---------- persist metadata ----------
     print("[Meta] 🔧 Saving category maps and feature list...")
@@ -104,9 +109,9 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
     save_feature_list(numeric_cols)
 
     print("[Meta] 🧮 Saving frequency tables...")
-    dump_freq_dict("data/meta/user_freq.csv.gz", dict(freq_user))
-    dump_freq_dict("data/meta/pc_freq.csv.gz", dict(freq_pc))
-    dump_freq_dict("data/meta/domain_freq.csv.gz", dict(freq_dom))
+    dump_freq_dict(os.path.join(DATA_DIR, "meta", "user_freq.csv.gz"), dict(freq_user))
+    dump_freq_dict(os.path.join(DATA_DIR, "meta", "pc_freq.csv.gz"), dict(freq_pc))
+    dump_freq_dict(os.path.join(DATA_DIR, "meta", "domain_freq.csv.gz"), dict(freq_dom))
     
     freq_user.close(); freq_pc.close(); freq_pair.close(); freq_dom.close()
 
@@ -117,7 +122,9 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
 
     print("[Meta] 📦 Zipping chunked CSVs into manageable files...")
     zip_chunks(out_dir, kind=os.path.basename(out_dir))
+    print(f"[Preprocess] ✅ Saved {num_chunks_saved} enriched chunks to {out_dir}")
 
-    
-
-
+if __name__ == "__main__":
+    print("[Preprocess] 🚀 Starting labeled preprocessing...")
+    preprocess_labeled_data_chunked()
+    print("[Preprocess] 🏁 Done.")
