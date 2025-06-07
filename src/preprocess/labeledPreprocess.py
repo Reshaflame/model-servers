@@ -43,6 +43,7 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                 chunk_id += 1
                 df = df.drop(columns=["datetime"])
                 df = df.dropna(subset=["time", "src_user", "src_comp"])   # ← NEW
+                df["time"] = pd.to_numeric(df["time"], errors="coerce")
                 df["time"] = df["time"].astype(int)                       # ← NEW, safe cast
                 if df.empty:
                     print(f"[Chunk {chunk_id}] ⚠️ Empty after dropna; skipping.")
@@ -71,8 +72,34 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                 seen_logon.update(df.logon_type.unique())
                 seen_orient.update(df.auth_orientation.unique())
                 
+                # debug prints:
+                print(f"[Chunk {chunk_id}] 🧪 Rows before dropna: {len(df)}")
+                df = df.drop(columns=["datetime"])
+                df = df.dropna(subset=["time", "src_user", "src_comp"])
+                print(f"[Chunk {chunk_id}] 🧼 Rows after dropna: {len(df)}")
+
+                # Ensure time is castable
+                try:
+                    df["time"] = df["time"].astype(int)
+                except Exception as e:
+                    print(f"[Chunk {chunk_id}] ❌ Casting time to int failed: {e}")
+                    print(df["time"].head())
+                    continue
+
+                if df.empty:
+                    print(f"[Chunk {chunk_id}] ⚠️ Empty after dropna/casting; skipping.")
+                    continue
+
+                print(f"[Chunk {chunk_id}] 🏷️ Columns: {df.columns.tolist()}")
+
+
                 for row_idx, row in df.iterrows():
                     u, pc, t = row.src_user, row.src_comp, row.time
+
+                    if row_idx >= len(domains):
+                        print(f"[Chunk {chunk_id}] ❌ Invalid index: {row_idx} >= {len(domains)}")
+                        continue
+
                     dom = domains.iloc[row_idx]
 
                     df.at[row_idx, "user_freq"]   = freq_user.get(u, 0)
