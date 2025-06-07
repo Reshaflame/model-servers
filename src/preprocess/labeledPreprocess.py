@@ -21,6 +21,7 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
     with gzip.open(red_gz,'rt') as f:
         red = pd.read_csv(f, names=red_cols)
     red_set = set(zip(red.time, red.user, red.src_comp, red.dst_comp))
+    os.makedirs("tmp", exist_ok=True)
 
     # ---------- freq counters ----------
     freq_user  = shelve.open(COUNTS_DB+"_user",   writeback=True)
