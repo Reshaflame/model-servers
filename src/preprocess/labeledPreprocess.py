@@ -14,10 +14,15 @@ COUNTS_DB   = "tmp/freq.db"   # on-disk key-value store
 def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"),
                                     red_gz=os.path.join(DATA_DIR, "redteam.txt.gz"),
                                     out_dir=os.path.join(DATA_DIR, "chunks_labeled")):
-
+    
     os.makedirs(out_dir, exist_ok=True)
     # ---------- build redteam lookup ----------
     red_cols = ["time","user","src_comp","dst_comp"]
+    # Quick check: print first row to confirm column count
+    with gzip.open(auth_gz, 'rt') as f:
+        sample_line = f.readline().strip()
+        num_fields = len(sample_line.split(','))
+        print(f"[Schema Check] First row has {num_fields} fields: {sample_line}")
     with gzip.open(red_gz,'rt') as f:
         red = pd.read_csv(f, names=red_cols)
     red_set = set(zip(red.time, red.user, red.src_comp, red.dst_comp))
@@ -32,7 +37,7 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
     # rolling stats: {user: deque[(timestamp, is_fail)]}
     windows = defaultdict(deque)
 
-    col_names = ["time","datetime","src_user","dst_user","src_comp","dst_comp",
+    col_names = ["time","src_user","dst_user","src_comp","dst_comp",
              "auth_type","logon_type","auth_orientation","success"]
     seen_auth, seen_logon, seen_orient = set(), set(), set()
     chunk_id = -1
