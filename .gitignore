@@ -171,8 +171,42 @@ cython_debug/
 .pypirc
 
 # Ignore the data directory and its contents
-data/
 *.gz
-*.csv
 *.h5
 *.zip
+
+# ──────────────────────────────────────────────────────────────
+#  TRUEDETECT  –  data/ sub-folders
+#  keep:   data/meta/      (small JSON / CSV helpers)
+#          data/samples/   (optional toy files for unit tests)
+# ignore: raw LANL dumps, heavy chunk outputs, archives, viz
+# ──────────────────────────────────────────────────────────────
+
+# 1️⃣  RAW LANL FILES  (always >7 GB compressed)
+data/auth.txt.gz
+data/redteam.txt.gz
+
+# 2️⃣  HEAVY GENERATED TREES
+data/chunks_labeled/*
+data/chunks_unlabeled/*
+data/labeled_data/chunks/*
+data/shared_chunks/*
+data/archives/*
+data/visualizations/*
+data/sampled_data/*
+debug/*
+
+# 3️⃣  Any stray CSV/GZ in the root of data/
+#     (meta/ folder will be whitelisted below)
+data/*.csv
+data/*.gz
+data/*.zip
+
+# 4️⃣  Allow the lightweight metadata + sample files back in
+!data/
+!data/meta/
+!data/meta/*
+!data/samples/
+!data/samples/*
+
+# ──────────────────────────────────────────────────────────────
