@@ -57,9 +57,6 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
 
                 # ---------- derive features ----------
                 df["utc_hour"] = (df.time // 3600) % 24
-
-                df["src_domain"] = df["src_user"].str.split("@").str[-1]
-
                 df["src_domain"] = domains
 
                 # frequencies BEFORE current row
@@ -95,8 +92,6 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                     print(f"[Chunk {chunk_id}] ⚠️ Empty after dropna/casting; skipping.")
                     continue
                 
-                domains = row.src_domain
-
                 print(f"[Chunk {chunk_id}] 🏷️ Columns: {df.columns.tolist()}")
 
                 for row_idx, row in df.iterrows():
@@ -104,13 +99,7 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
                         print(f"[Chunk {chunk_id}] Processing row {row_idx}/{len(df)}...")
 
                     u, pc, t = row.src_user, row.src_comp, row.time
-
-                    if row_idx >= len(domains):
-                        if row_idx % 10000 == 0:
-                            print(f"[Chunk {chunk_id}] ⚠️ Skipping row {row_idx} (index > domains)")
-                        continue
-
-                    dom = domains.iloc[row_idx]
+                    dom = row.src_domain  # ← no need for indexing anymore ✅
 
                     df.at[row_idx, "user_freq"]   = freq_user.get(u, 0)
                     df.at[row_idx, "pc_freq"]     = freq_pc.get(pc, 0)
@@ -119,22 +108,21 @@ def preprocess_labeled_data_chunked(auth_gz=os.path.join(DATA_DIR, "auth.txt.gz"
 
                     # rolling window update
                     q = windows[u]
-                    # drop events older than 1h
                     while q and t - q[0][0] > ROLL_WINDOW: q.popleft()
                     logins = len(q)
-                    fails  = sum(1 for ts,fail in q if fail)
+                    fails  = sum(1 for ts, fail in q if fail)
                     df.at[row_idx, "logins_1h_user"] = logins
                     df.at[row_idx, "fails_1h_user"]  = fails
                     df.at[row_idx, "fail_ratio_1h"]  = fails / (logins + 1)
 
-                    # append current event
-                    q.append((t, 1-int(row.success)))  # success==1→fail flag 0
+                    q.append((t, 1 - int(row.success)))
 
-                    # increment global counters *after* feature capture
-                    freq_user[u] = freq_user.get(u,0)+1
-                    freq_pc[pc]  = freq_pc.get(pc,0)+1
-                    freq_pair[f"{u}|{pc}"] = freq_pair.get(f"{u}|{pc}",0)+1
-                    freq_dom[dom] = freq_dom.get(dom,0)+1
+                    # update global counters
+                    freq_user[u] = freq_user.get(u, 0) + 1
+                    freq_pc[pc]  = freq_pc.get(pc, 0) + 1
+                    freq_pair[f"{u}|{pc}"] = freq_pair.get(f"{u}|{pc}", 0) + 1
+                    freq_dom[dom] = freq_dom.get(dom, 0) + 1
+
 
                 # ---------- persist to CSV ----------
                 out = os.path.join(out_dir, f"chunk_{chunk_id:04d}_labeled_feat.csv")
