@@ -65,25 +65,30 @@ class GRUHybrid(nn.Module):
     ➋ 1×8 bottleneck linear layer (frozen as requested)  
     ➌ Small MLP head (trainable)
     """
-    def __init__(self, gru_backbone: GRUAnomalyDetector, bottleneck_out=8):
+    def __init__(self, gru_backbone: GRUAnomalyDetector, freeze_gru=True, freeze_bottleneck=False):
         super().__init__()
         self.gru = gru_backbone
-        for p in self.gru.parameters(): p.requires_grad_(False)
+        if freeze_gru:
+            for p in self.gru.parameters():
+                p.requires_grad_(False)
 
-        self.bottleneck = nn.Linear(self.gru.fc.in_features, bottleneck_out)
-        for p in self.bottleneck.parameters(): p.requires_grad_(False)
+        self.bottleneck = nn.Linear(self.gru.fc.in_features, 8)
+        if freeze_bottleneck:
+            for p in self.bottleneck.parameters():
+                p.requires_grad_(False)
+
 
         self.head = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(bottleneck_out, 16), nn.ReLU(),
+            nn.Linear(8, 16), nn.ReLU(),
             nn.Linear(16, 1)
         )
 
     def forward(self, x):
-        logits_gru = self.gru(x)               # size [B,1]  (logits)
-        feats      = torch.sigmoid(logits_gru) # detach not needed (grad-flow stops)
-        feats8     = self.bottleneck(feats)    # [B,8]  frozen
-        return self.head(feats8)               # logits
+        logits_gru = self.gru(x)
+        feats = torch.sigmoid(logits_gru)
+        feats8 = self.bottleneck(feats)
+        return self.head(feats8)               
 
 # --------------------------------------------------------------------- #
 # 3.  Unified train routine                                              #
@@ -137,7 +142,9 @@ def train_hybrid(backbone_ckpt, loaders, tag="gru_hybrid", epochs=3, lr=1e-3):
     backbone = dummy_gru.to(device)
     backbone.eval()
 
-    model = GRUHybrid(backbone).to(device)
+    model = GRUHybrid(backbone, freeze_gru=True, freeze_bottleneck=False)
+    # For FastAPI retraining: (Don't forget!)
+    # model = GRUHybrid(backbone, freeze_gru=True, freeze_bottleneck=True)
     optim = torch.optim.Adam(model.head.parameters(), lr=lr)    # only head trainable
     crit  = nn.BCEWithLogitsLoss()
 
