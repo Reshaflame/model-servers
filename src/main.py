@@ -14,7 +14,7 @@ os.environ["RAY_object_spilling_config"]     = (
 
 # ─── Pipelines ────────────────────────────────────────────────────
 from pipeline.iso_pipeline   import run_iso_pipeline
-from pipeline.gru_pipeline   import run_gru_pipeline
+from pipeline.gru_hybrid_pipeline   import run_pipeline as run_gru_hybrid
 from pipeline.lstm_pipeline  import run_lstm_pipeline
 from pipeline.ensemble_pipeline import run_ensemble_training
 # (LightGBM pipeline can be added later: from pipeline.lgbm_pipeline import …)
@@ -57,7 +57,7 @@ MENU = """
 📊 TrueDetect CLI – Select an option:
 1. Preprocess Labeled Data
 2. Preprocess Unlabeled Data (deprecated)
-3. Train GRU
+3. GRU + MLP Hybrid
 4. Train LSTM+RNN
 5. Evaluate Isolation Forest
 6. Train Ensemble Voting
@@ -72,7 +72,7 @@ def main():
         if choice == "1":
             preprocess_labeled()
         elif choice == "3":
-            run_gru_pipeline(preprocess=False)
+            run_gru_hybrid()
         elif choice == "4":
             run_lstm_pipeline(preprocess=False)
         elif choice == "5":
