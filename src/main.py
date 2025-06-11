@@ -1,6 +1,8 @@
 import os
 import sys
 import subprocess
+from subprocess import run
+
 
 # ─── Thread & Ray limits ──────────────────────────────────────────
 os.environ["OMP_NUM_THREADS"]           = "1"
@@ -43,6 +45,9 @@ def preprocess_labeled():
             check=True
         )
 
+def enhance_phase2():
+    run([sys.executable, "-m", "preprocess.enhance_labeled_chunks"], cwd="src", check=True)
+
 # def preprocess_unlabeled():
 #     if chunks_exist(UNLABELED_DIR):
 #         print("[Preprocess] ✅ Unlabeled data already preprocessed. Skipping.")
@@ -61,6 +66,7 @@ MENU = """
 4. Train LSTM+RNN
 5. Evaluate Isolation Forest
 6. Train Ensemble Voting
+7. 🔄 Enhance Labeled Chunks (Phase 2)
 0. Exit
 """
 
@@ -79,6 +85,8 @@ def main():
             run_iso_pipeline(preprocess=False)
         elif choice == "6":
             run_ensemble_training()
+        elif choice == "7":
+            enhance_phase2()
         elif choice == "0":
             print("👋 Exiting. Goodbye!")
             sys.exit(0)
