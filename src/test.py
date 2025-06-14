@@ -6,7 +6,7 @@ import os
 import joblib
 from collections import Counter
 
-from models.gru import GRUAnomalyDetector
+from models.gru_hybrid import GRUAnomalyDetector
 from models.lstm_rnn import LSTM_RNN_Hybrid
 from models.isolation_forest import IsolationForestModel
 from utils.constants import CHUNKS_LABELED_PATH

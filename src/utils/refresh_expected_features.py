@@ -1,6 +1,9 @@
 # ── refresh_expected_features.py ───────────────────────────────────
-import os, glob, pandas as pd
+import sys, os, glob, pandas as pd
 from utils.meta_builder import save_feature_list
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+from utils.meta_builder import save_feature_list
+
 
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 DATA_DIR = os.path.join(ROOT_DIR, "data")
