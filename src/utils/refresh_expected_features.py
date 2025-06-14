@@ -1,8 +1,8 @@
 # ── refresh_expected_features.py ───────────────────────────────────
 import sys, os, glob, pandas as pd
 
-# 🔧 Fix sys.path BEFORE importing anything else from project modules
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
+# ✅ Fix sys.path BEFORE any internal imports
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..")))
 
 from utils.meta_builder import save_feature_list
 
