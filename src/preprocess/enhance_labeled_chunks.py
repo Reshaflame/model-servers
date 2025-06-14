@@ -61,6 +61,14 @@ def run_phase2():
         enhance_chunk(src, dst)
         processed += 1
     print(f"[Phase-2] ✅ Enhanced {processed} chunks.")
+    
+    # --- refresh expected_features.json ---------------------------------
+    sample_chunk = sorted(glob.glob(os.path.join(DST_DIR, "*.csv")))[0]
+    cols = pd.read_csv(sample_chunk, nrows=1).columns.tolist()
+    from utils.meta_builder import save_feature_list
+    save_feature_list(cols)
+    print("[Phase-2] 📝 expected_features.json updated.")
+
     # optional: zip the new directory for easy download
     zip_chunks(DST_DIR, kind="labeled_phase2")
 
