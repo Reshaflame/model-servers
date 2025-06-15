@@ -114,9 +114,22 @@ def train_gru(config, loaders, input_size, tag, resume=True, eval_every_epoch=Tr
     for epoch in range(start, config["epochs"]):
         model.train()
         for xb, yb in train_loader():
-            xb, yb = xb.to(device).float(), yb.to(device).float().unsqueeze(1)
-            if xb.dim() == 2: xb = xb.unsqueeze(1)
-            optim.zero_grad(); loss = crit(model(xb), yb); loss.backward(); optim.step()
+            xb = xb.to(device).float()
+            yb = yb.to(device).float()
+
+            # make sure yb is [B, 1]
+            if yb.dim() == 1:          # [B]  → [B,1]
+                yb = yb.unsqueeze(1)
+            elif yb.dim() == 2 and yb.size(1) > 1:  # [B,1,1]  → [B,1]
+                yb = yb.view(-1, 1)
+
+            if xb.dim() == 2:          # keep the old dummy-time-step logic
+                xb = xb.unsqueeze(1)
+
+            optim.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            optim.step()
 
         LOGGER.info(f"[{tag}] epoch {epoch+1}/{config['epochs']} – loss {loss.item():.4f}")
         save_ckpt(model, optim, epoch+1, tag)
@@ -151,8 +164,12 @@ def train_hybrid(backbone_ckpt, loaders, tag="gru_hybrid", epochs=3, lr=1e-3):
     for ep in range(epochs):
         model.train()
         for xb, yb in train_loader():
-            xb, yb = xb.to(device).float(), yb.to(device).float().unsqueeze(1)
-            if xb.dim() == 2: xb = xb.unsqueeze(1)
+            xb = xb.to(device).float()
+            yb = yb.to(device).float()
+            if yb.dim() == 1:
+                yb = yb.unsqueeze(1)
+            elif yb.dim() == 2 and yb.size(1) > 1:
+                yb = yb.view(-1, 1)
             optim.zero_grad(); loss = crit(model(xb), yb); loss.backward(); optim.step()
         LOGGER.info(f"[HYBRID] epoch {ep+1}/{epochs} – loss {loss.item():.4f}")
     torch.save(model.state_dict(), "/app/models/gru_hybrid.pth")
