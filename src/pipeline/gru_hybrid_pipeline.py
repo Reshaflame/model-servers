@@ -14,6 +14,15 @@ def run_pipeline():
     numeric = pd.read_csv(first).drop(columns=['label']).select_dtypes('number').columns
     input_size = len(numeric)
 
+    # ─── helpers ─────────────────────────────────────────────────────────
+    def count_positives(loader_fn):
+        """Iterate ONCE over the *entire* val generator and count labels."""
+        tot = pos = 0
+        for _, y in loader_fn():            # iterate lazily over every chunk
+            tot += y.numel()
+            pos += (y == 1).sum().item()
+        return pos, tot
+    
     dataset = SequenceChunkedDataset(chunk_dir,
                                      label_column='label',
                                      batch_size=64,
@@ -21,18 +30,17 @@ def run_pipeline():
                                      binary_labels=True,
                                      sequence_length=1,
                                      device='cuda' if torch.cuda.is_available() else 'cpu')
+    def val_once():
+        """Yield *exactly one* pass over every val batch each time it's called."""
+        yield from dataset.val_loader()
 
-    def quick_dataset_stats(dl, name, max_batches=200):
-        tot = pos = 0
-        for i, (_, y) in enumerate(dl()):
-            if i >= max_batches:
-                break
-            tot += y.numel()
-            pos += (y == 1).sum().item()
-        print(f"🧮  {name}: {pos}/{tot} positives "
-            f"(≈{100*pos/max(1,tot):.5f}% in first {max_batches} batches)")
-    quick_dataset_stats(dataset.train_loader, "train")
-    quick_dataset_stats(dataset.val_loader,   "val")
+    pos_tr, tot_tr = count_positives(dataset.train_loader)
+    pos_val, tot_val = count_positives(dataset.val_loader)
+    
+    print(f"🧮  train positives ≈ {pos_tr}/{tot_tr} "
+        f"({100*pos_tr/max(1,tot_tr):.4f} %)")
+    print(f"🧮  𝐯𝐚𝐥  positives ≈ {pos_val}/{tot_val} "
+        f"({100*pos_val/max(1,tot_val):.4f} %)")
     
     param_grid = [
         {"lr":1e-3,  "hidden_size":48, "num_layers":1, "epochs":6, "early_stop_patience":2},
@@ -44,7 +52,7 @@ def run_pipeline():
     def train_func(cfg):
         best_f1, _ = train_gru(           # unpack tuple!
             cfg,
-            loaders=(dataset.train_loader, dataset.val_loader),
+            loaders=(dataset.train_loader, val_once),
             input_size=input_size,
             tag=f"gru_h{cfg['hidden_size']}_l{cfg['num_layers']}",
             resume=True,
@@ -59,7 +67,7 @@ def run_pipeline():
     best_tag = f"gru_h{best_cfg['hidden_size']}_l{best_cfg['num_layers']}"
     best_f1, gru_model = train_gru(       # unpack again
         best_cfg,
-        loaders=(dataset.train_loader, dataset.val_loader),
+        loaders=(dataset.train_loader, val_once),
         input_size=input_size,
         tag=best_tag,
         resume=False,
@@ -77,7 +85,7 @@ def run_pipeline():
     # ───────────  HYBRID STAGE  ───────────
     print("\n🚀  Starting hybrid fine-tune…")
     hybrid_model = train_hybrid("/app/models/gru_trained_model.pth",
-                                loaders=(dataset.train_loader, dataset.val_loader),
+                                loaders=(dataset.train_loader, val_once),
                                 epochs=3, lr=1e-3)
     evaluate_and_export(hybrid_model,
                         dataset.full_loader(),
