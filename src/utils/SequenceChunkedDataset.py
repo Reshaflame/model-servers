@@ -43,6 +43,10 @@ class SequenceChunkedDataset:
 
         self.input_size = len(self.feature_columns)
 
+    def resplit(self):
+        from random import shuffle
+        shuffle(self.chunk_paths)
+
     def _load_sequences_from_chunk(self, chunk_path):
         # ------------------------------------------------------
         # 1) Load CSV (python engine avoids rare tokenising errors)
