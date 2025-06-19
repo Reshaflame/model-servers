@@ -30,24 +30,30 @@ def run_pipeline():
     ]
 
     def train_func(cfg):
-        return train_gru(cfg,
-                         loaders=(dataset.train_loader, dataset.val_loader),
-                         input_size=input_size,
-                         tag=f"gru_h{cfg['hidden_size']}_l{cfg['num_layers']}",
-                         resume=True,
-                         eval_every_epoch=True)
+        best_f1, _ = train_gru(           # unpack tuple!
+            cfg,
+            loaders=(dataset.train_loader, dataset.val_loader),
+            input_size=input_size,
+            tag=f"gru_h{cfg['hidden_size']}_l{cfg['num_layers']}",
+            resume=True,
+            eval_every_epoch=True
+        )
+        return best_f1
 
     best_cfg = manual_gru_search(train_func, param_grid)
     print("🏅 Best GRU config:", best_cfg)
 
     # Final GRU training using best config (resume = False to start fresh)
     best_tag = f"gru_h{best_cfg['hidden_size']}_l{best_cfg['num_layers']}"
-    gru_model = train_gru(best_cfg,
-                          loaders=(dataset.train_loader, dataset.val_loader),
-                          input_size=input_size,
-                          tag=best_tag,
-                          resume=False,
-                          eval_every_epoch=False)
+    best_f1, gru_model = train_gru(       # unpack again
+        best_cfg,
+        loaders=(dataset.train_loader, dataset.val_loader),
+        input_size=input_size,
+        tag=best_tag,
+        resume=False,
+        eval_every_epoch=False
+    )
+    print(f"👍 Final GRU F1 on val = {best_f1:.4f}")
 
     export_model(gru_model, "/app/models/gru_trained_model.pth")
     evaluate_and_export(gru_model,

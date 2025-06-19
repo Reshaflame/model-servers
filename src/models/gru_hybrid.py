@@ -143,7 +143,7 @@ def train_gru(config, loaders, input_size, tag, resume=True, eval_every_epoch=Tr
                 if patience >= config["early_stop_patience"]:
                     LOGGER.info("🛑  early-stopping")
                     break
-    return model
+    return best_f1, model
 
 def train_hybrid(backbone_ckpt, loaders, tag="gru_hybrid", epochs=3, lr=1e-3):
     train_loader, val_loader = loaders
