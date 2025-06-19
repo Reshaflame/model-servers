@@ -54,11 +54,9 @@ class SequenceChunkedDataset:
             print(f"[WARNING] ⚠️  {os.path.basename(chunk_path)} "
                   "contains non-numeric cols – coerced to 0.")
 
-        # ------------------------------------------------------
-        # 2) Label  →  1 (anomaly) / 0 (normal)
-        # ------------------------------------------------------
+
         if self.binary_labels:
-            df[self.label_column] = (df[self.label_column] == -1).astype(float)
+            df[self.label_column] = (df[self.label_column] ==  1).astype(float)
 
         # ------------------------------------------------------
         # 3) Build sequences
