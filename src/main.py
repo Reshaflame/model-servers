@@ -15,15 +15,16 @@ os.environ["RAY_object_spilling_config"]     = (
 )
 
 # ─── Pipelines ────────────────────────────────────────────────────
-from pipeline.iso_pipeline   import run_iso_pipeline
+from pipeline.iso_pipeline          import run_iso_pipeline
 from pipeline.gru_hybrid_pipeline   import run_pipeline as run_gru_hybrid
-from pipeline.lstm_pipeline  import run_lstm_pipeline
-from pipeline.ensemble_pipeline import run_ensemble_training
-# (LightGBM pipeline can be added later: from pipeline.lgbm_pipeline import …)
+from pipeline.lstm_hybrid_pipeline  import run_pipeline as run_lstm_hybrid
+from pipeline.ensemble_pipeline     import run_ensemble_training
+# (LightGBM pipeline can be added later: from pipeline.lgbm_pipeline import run_lgbm_pipeline)
 
 # -----------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------
+
 def chunks_exist(path: str) -> bool:
     """Return True if the directory contains at least one *.csv chunk."""
     return os.path.isdir(path) and any(p.endswith(".csv") for p in os.listdir(path))
@@ -53,7 +54,7 @@ def enhance_phase2():
 #         print("[Preprocess] ✅ Unlabeled data already preprocessed. Skipping.")
 #     else:
 #         print("[Preprocess] 🔄 Running unlabeled data preprocessing...")
-#         os.system("python src/preprocess/unlabeledPreprocess.py") # default out_dir is data/chunks_unlabeled
+#         os.system("python src/preprocess/unlabeledPreprocess.py")
 
 # -----------------------------------------------------------------
 # CLI
@@ -63,7 +64,7 @@ MENU = """
 1. Preprocess Labeled Data
 2. Preprocess Unlabeled Data (deprecated)
 3. GRU + MLP Hybrid
-4. Train LSTM+RNN
+4. LSTM+RNN + MLP Hybrid
 5. Evaluate Isolation Forest
 6. Train Ensemble Voting
 7. 🔄 Enhance Labeled Chunks (Phase 2)
@@ -80,7 +81,7 @@ def main():
         elif choice == "3":
             run_gru_hybrid()
         elif choice == "4":
-            run_lstm_pipeline(preprocess=False)
+            run_lstm_hybrid()
         elif choice == "5":
             run_iso_pipeline(preprocess=False)
         elif choice == "6":
