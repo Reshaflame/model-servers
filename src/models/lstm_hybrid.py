@@ -19,6 +19,8 @@ def _logger(name):         # one-liner pragma
         L.addHandler(fh);  L.addHandler(sh)
     return L
 LOGGER = _logger("LSTM")
+from utils.logging_helpers import enable_full_debug
+enable_full_debug(LOGGER)        
 
 # ───────────────────────────────  1) backbone  ─────────────────────────────── #
 class LSTMRNNBackbone(nn.Module):
@@ -95,16 +97,29 @@ def train_lstm(cfg, loaders, input_size, tag, resume=True, eval_every=True):
     best_f1 = 0; patience = 0
     for ep in range(start, cfg["epochs"]):
         model.train()
+        batch_id = 0
         for xb, yb in train_loader():
+            batch_id += 1
             xb, yb = xb.to(dev).float(), yb.to(dev).float()
             if yb.dim()==1: yb = yb.unsqueeze(1)
-            optim.zero_grad(); loss = crit(model(xb), yb); loss.backward(); optim.step()
+            optim.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            optim.step()
+
+            # ── tiny DEBUG probe every ~200 batches ─────────────────
+            if batch_id % 200 == 0:
+                with torch.no_grad():
+                    mean_logit = torch.sigmoid(model(xb)).mean().item()
+                pos = int(yb.sum().item())
+                LOGGER.debug(f"      batch {batch_id:>5}  pos={pos:>3}/{yb.numel()}  "
+                             f"mean_sigmoid={mean_logit:.6f}  loss={loss.item():.6f}")
         LOGGER.info(f"[{tag}] ep {ep+1}/{cfg['epochs']} loss={loss.item():.5f}")
         torch.save({"model":model.state_dict(),"optim":optim.state_dict(),"epoch":ep+1}, _ckpt(tag))
 
         if eval_every:
             mets = quick_f1(model, val_loader_fn, dev)
-            LOGGER.info(f"   F1={mets['F1']:.4f} P={mets['Precision']:.4f} R={mets['Recall']:.4f}")
+            LOGGER.info(f"   F1={mets['F1']:.6f} P={mets['Precision']:.6f} R={mets['Recall']:.6f}")
             if mets['F1'] > best_f1: best_f1, patience = mets['F1'], 0
             else:
                 patience += 1

@@ -3,6 +3,7 @@ import torch
 import numpy as np
 import os
 from utils.metrics import Metrics
+from sklearn.metrics import precision_score, recall_score, f1_score
 
 
 # --- utils/evaluator.py ---
@@ -12,7 +13,7 @@ def quick_f1(model, val_loader_fn, device, default_th=0.5):
     Precision, Recall, F1, and th no matter what.
     """
     m = Metrics()
-    y_true, y_pred = [], []
+    y_true, all_probs = [], []
 
     with torch.no_grad():
         for x, y in val_loader_fn():
@@ -20,23 +21,26 @@ def quick_f1(model, val_loader_fn, device, default_th=0.5):
             if x.dim() == 2:  # GRU case
                 x = x.unsqueeze(1)
             probs = torch.sigmoid(model(x)).flatten()
-            preds = (probs > default_th).float()
-
             y_true.extend(y.cpu().numpy().flatten())
-            y_pred.extend(preds.cpu().numpy().flatten())
+            all_probs.extend(probs.cpu().numpy().flatten())
 
-    if len(set(y_true)) < 2:       # no positives or no negatives
-        # Avoid sklearn warnings / errors
-        precision = recall = f1 = 0.0
-    else:
-        metrics = m.compute_standard_metrics(y_true, y_pred)
-        precision, recall, f1 = (
-            metrics["Precision"],
-            metrics["Recall"],
-            metrics["F1"],
-        )
+    # ── sweep thresholds to get best F1 ───────────────────────────
+    best = {"Precision": 0, "Recall": 0, "F1": 0, "th": default_th}
+    if len(set(y_true)) < 2:          # edge-case: all zeros or all ones
+        return best
 
-    return {"Precision": precision, "Recall": recall, "F1": f1, "th": default_th}
+    y_true = np.asarray(y_true)
+    all_probs = np.asarray(all_probs)
+
+    for th in np.linspace(0.05, 0.95, 19):
+        preds = (all_probs > th).astype(float)
+        p  = precision_score(y_true, preds, zero_division=0)
+        r  = recall_score   (y_true, preds, zero_division=0)
+        f1 = f1_score      (y_true, preds, zero_division=0)
+        if f1 > best["F1"]:
+            best = {"Precision": p, "Recall": r, "F1": f1, "th": th}
+
+    return best
 
 
 

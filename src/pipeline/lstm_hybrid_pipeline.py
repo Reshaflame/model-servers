@@ -18,7 +18,7 @@ def run_pipeline():
         chunk_dir,
         label_column='label',
         batch_size=64, shuffle_files=True, binary_labels=True,
-        sequence_length=1,
+        sequence_length=10,
         device='cuda' if torch.cuda.is_available() else 'cpu'
     )
 
