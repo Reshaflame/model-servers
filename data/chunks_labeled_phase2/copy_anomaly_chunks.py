@@ -44,20 +44,47 @@ MANUAL_LIST = [
     "chunk_0574_labeled_enc.csv",
     "chunk_0581_labeled_enc.csv",
     "chunk_0851_labeled_enc.csv",
+    "chunk_0852_labeled_enc.csv",
+    "chunk_0586_labeled_enc.csv","chunk_0830_labeled_enc.csv",
+    "chunk_0825_labeled_enc.csv","chunk_0827_labeled_enc.csv",
+    "chunk_0835_labeled_enc.csv","chunk_0601_labeled_enc.csv",
+    "chunk_0856_labeled_enc.csv","chunk_0602_labeled_enc.csv",
+    "chunk_0917_labeled_enc.csv","chunk_0830_labeled_enc.csv",
+    "chunk_0931_labeled_enc.csv","chunk_0827_labeled_enc.csv",
+    "chunk_0562_labeled_enc.csv","chunk_0601_labeled_enc.csv",
+    "chunk_0563_labeled_enc.csv","chunk_0602_labeled_enc.csv",
+    "chunk_0584_labeled_enc.csv","chunk_0830_labeled_enc.csv",
+    "chunk_0598_labeled_enc.csv","chunk_0827_labeled_enc.csv",
+    "chunk_0829_labeled_enc.csv","chunk_0601_labeled_enc.csv",
+    "chunk_0587_labeled_enc.csv","chunk_0602_labeled_enc.csv",
+    "chunk_0607_labeled_enc.csv","chunk_0830_labeled_enc.csv",
+    "chunk_0819_labeled_enc.csv","chunk_0827_labeled_enc.csv",
+    "chunk_0841_labeled_enc.csv","chunk_0601_labeled_enc.csv",
+    "chunk_0844_labeled_enc.csv","chunk_0602_labeled_enc.csv",
+    "chunk_0175_labeled_enc.csv","chunk_0830_labeled_enc.csv",
+    "chunk_0576_labeled_enc.csv","chunk_0827_labeled_enc.csv",
+    "chunk_0658_labeled_enc.csv","chunk_0601_labeled_enc.csv",
 ]
 
 # --------------------------------------------------------------------
 def main(src_dir, dst_dir):
     os.makedirs(dst_dir, exist_ok=True)
 
-    # 1️⃣  Load anomaly-bearing files
+    # 1️⃣  load anomaly-bearing files
     anomaly_files = load_anomaly_list(
         os.path.join(src_dir, DEFAULT_AUTO_FILE),
         MANUAL_LIST
     )
-    # Only files that exist
-    selected = [f for f in anomaly_files if os.path.exists(os.path.join(src_dir, f))]
+    # guard: only files that truly exist
+    anomaly_files = [f for f in anomaly_files if os.path.exists(os.path.join(src_dir, f))]
+    anomaly_top   = anomaly_files[:KEEP_TOP_N_ANOM]
 
+    # 2️⃣  pick random quiet chunks
+    all_chunks    = glob.glob(os.path.join(src_dir, "chunk_*_labeled_enc.csv"))
+    quiet_pool    = [os.path.basename(f) for f in all_chunks if os.path.basename(f) not in anomaly_files]
+    random_quiet  = random.sample(quiet_pool, KEEP_RANDOM_N) if len(quiet_pool) >= KEEP_RANDOM_N else quiet_pool
+
+    selected = sorted(set(anomaly_top + random_quiet))
     print(f"📦 Copying {len(selected)} chunks → {dst_dir}")
 
     copied, missing = 0, []
