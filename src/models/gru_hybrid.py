@@ -1,8 +1,8 @@
 # src/models/gru_hybrid.py
-import os, logging, torch, numpy as np
+import os, logging, torch
 import torch.nn as nn
-from utils.metrics import Metrics
 from utils.evaluator import quick_f1
+from utils.logging_helpers import enable_full_debug
 
 LOG_DIR = "/workspace/logs"
 CKPT_DIR = "/workspace/checkpoints"
@@ -20,6 +20,7 @@ def _setup_logger(name="GRU", logfile="gru_training.log"):
     return logger
 
 LOGGER = _setup_logger()
+enable_full_debug(LOGGER)
 
 # --------------------------------------------------------------------- #
 # 1.  Basic GRU (1-2 layers, 48-64 units) + checkpoint helpers          #
@@ -113,6 +114,7 @@ def train_gru(config, loaders, input_size, tag, resume=True, eval_every_epoch=Tr
     best_f1, patience = 0, 0
     for epoch in range(start, config["epochs"]):
         model.train()
+        batch_id = 0
         for xb, yb in train_loader():
             xb = xb.to(device).float()
             yb = yb.to(device).float()
@@ -130,13 +132,21 @@ def train_gru(config, loaders, input_size, tag, resume=True, eval_every_epoch=Tr
             loss = crit(model(xb), yb)
             loss.backward()
             optim.step()
+            # -- light debug every ~200 mini-batches -----------------
+            if batch_id % 200 == 0:
+                with torch.no_grad():
+                    mean_logit = torch.sigmoid(model(xb)).mean().item()
+                pos = int(yb.sum().item())
+                LOGGER.debug(f"      batch {batch_id:>4}  pos={pos:>3}/{yb.numel()} "
+                             f"mean_sigmoid={mean_logit:.6f}")
+            batch_id += 1
 
-        LOGGER.info(f"[{tag}] epoch {epoch+1}/{config['epochs']} – loss {loss.item():.4f}")
+        LOGGER.info(f"[{tag}] epoch {epoch+1}/{config['epochs']} – loss {loss.item():.6f}")
         save_ckpt(model, optim, epoch+1, tag)
 
         if eval_every_epoch:
             mets = quick_f1(model, val_loader_fn, device)
-            LOGGER.info(f"   F1={mets['F1']:.4f}  P={mets['Precision']:.4f}  R={mets['Recall']:.4f}")
+            LOGGER.info(f"   F1={mets['F1']:.6f}  P={mets['Precision']:.6f}  R={mets['Recall']:.6f}")
             if mets['F1'] > best_f1: best_f1, patience = mets['F1'], 0
             else:
                 patience += 1
@@ -171,7 +181,7 @@ def train_hybrid(backbone_ckpt, loaders, tag="gru_hybrid", epochs=3, lr=1e-3):
             elif yb.dim() == 2 and yb.size(1) > 1:
                 yb = yb.view(-1, 1)
             optim.zero_grad(); loss = crit(model(xb), yb); loss.backward(); optim.step()
-        LOGGER.info(f"[HYBRID] epoch {ep+1}/{epochs} – loss {loss.item():.4f}")
+        LOGGER.info(f"[HYBRID] epoch {ep+1}/{epochs} – loss {loss.item():.6f}")
     torch.save(model.state_dict(), "/app/models/gru_hybrid.pth")
     LOGGER.info("✅  hybrid model saved → /app/models/gru_hybrid.pth")
     return model

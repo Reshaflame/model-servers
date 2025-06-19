@@ -22,6 +22,18 @@ def run_pipeline():
                                      sequence_length=1,
                                      device='cuda' if torch.cuda.is_available() else 'cpu')
 
+    def quick_dataset_stats(dl, name, max_batches=200):
+        tot = pos = 0
+        for i, (_, y) in enumerate(dl()):
+            if i >= max_batches:
+                break
+            tot += y.numel()
+            pos += (y == 1).sum().item()
+        print(f"🧮  {name}: {pos}/{tot} positives "
+            f"(≈{100*pos/max(1,tot):.5f}% in first {max_batches} batches)")
+    quick_dataset_stats(dataset.train_loader, "train")
+    quick_dataset_stats(dataset.val_loader,   "val")
+    
     param_grid = [
         {"lr":1e-3,  "hidden_size":48, "num_layers":1, "epochs":6, "early_stop_patience":2},
         {"lr":5e-4,  "hidden_size":64, "num_layers":1, "epochs":6, "early_stop_patience":2},
