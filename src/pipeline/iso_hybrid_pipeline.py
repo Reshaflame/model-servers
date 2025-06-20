@@ -10,7 +10,7 @@ import json, logging, os, torch, numpy as np, pandas as pd
 from glob import glob
 
 from utils.constants import CHUNKS_LABELED_PATH
-from utils.chunked_dataset import ChunkedCSVDataset
+from utils.SequenceChunkedDataset import SequenceChunkedDataset
 from models.iso_backbone import IsoBackbone
 from models.iso_hybrid   import IsoHybrid
 
@@ -37,12 +37,13 @@ def run_iso_hybrid_pipeline(preprocess: bool = False) -> None:
     logging.info(f"🔍 Using {len(expected_features)} features from expected_features.json")
 
     # ----------------------------------------------------------------
-    # 1.  Build chunked dataset (streams numpy + labels)
+    # 1.  Build chunked dataset (same code path as GRU, seq_len = 1)
     # ----------------------------------------------------------------
-    chunk_dataset = ChunkedCSVDataset(
-        chunk_dir       = CHUNKS_LABELED_PATH,
-        chunk_size      = 5_000,
-        label_col       = "label",
+    chunk_dataset = SequenceChunkedDataset(
+        batch_size      = 5_000,             # ≈ rows per “batch”
+        shuffle_files   = False,
+        label_column    = "label",
+        sequence_length = 1,                 # <- makes it “tabular”
         device          = "cuda" if torch.cuda.is_available() else "cpu",
         expected_features = expected_features
     )
