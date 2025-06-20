@@ -144,7 +144,7 @@ def train_hybrid(
     dummy.load_state_dict(torch.load(backbone_ckpt, map_location="cpu"))
     backbone = dummy.to(dev).eval()
 
-    model = LSTMHybrid(backbone, freeze_backbone=True, freeze_bottleneck=False)
+    model = LSTMHybrid(backbone, freeze_backbone=True, freeze_bottleneck=False).to(dev)
     optim = torch.optim.Adam(model.head.parameters(), lr=lr)
     crit  = nn.BCEWithLogitsLoss()
 

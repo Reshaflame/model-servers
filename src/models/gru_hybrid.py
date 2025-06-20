@@ -177,7 +177,7 @@ def train_hybrid(
     backbone = dummy_gru.to(device)
     backbone.eval()
 
-    model = GRUHybrid(backbone, freeze_gru=True, freeze_bottleneck=False)
+    model = GRUHybrid(backbone, freeze_gru=True, freeze_bottleneck=False).to(device)
     # For FastAPI retraining: (Don't forget!)
     # model = GRUHybrid(backbone, freeze_gru=True, freeze_bottleneck=True)
     optim = torch.optim.Adam(model.head.parameters(), lr=lr)    # only head trainable
