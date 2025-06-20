@@ -15,7 +15,7 @@ os.environ["RAY_object_spilling_config"]     = (
 )
 
 # ─── Pipelines ────────────────────────────────────────────────────
-from pipeline.iso_pipeline          import run_iso_pipeline
+from pipeline.iso_hybrid_pipeline   import run_iso_hybrid_pipeline as run_iso_hybrid
 from pipeline.gru_hybrid_pipeline   import run_pipeline as run_gru_hybrid
 from pipeline.lstm_hybrid_pipeline  import run_pipeline as run_lstm_hybrid
 from pipeline.ensemble_pipeline     import run_ensemble_training
@@ -83,7 +83,7 @@ def main():
         elif choice == "4":
             run_lstm_hybrid()
         elif choice == "5":
-            run_iso_pipeline(preprocess=False)
+            run_iso_hybrid(preprocess=False)
         elif choice == "6":
             run_ensemble_training()
         elif choice == "7":
