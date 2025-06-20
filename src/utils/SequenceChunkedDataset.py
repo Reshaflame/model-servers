@@ -35,6 +35,15 @@ class SequenceChunkedDataset:
             from random import shuffle
             shuffle(self.chunk_paths)
 
+        # keep only chunks that contain at least one anomaly
+        positive_chunks = [p for p in self.chunk_paths if self._chunk_has_pos(p)]
+        dropped         = len(self.chunk_paths) - len(positive_chunks)
+        if dropped:
+            print(f"[Init] ⚖️  Skipping {dropped} chunks with 0 anomalies")
+        if not positive_chunks:
+            raise RuntimeError("No chunks with anomalies found!")
+        self.chunk_paths = positive_chunks
+
         # Detect input size from first chunk
         sample_df = pd.read_csv(self.chunk_paths[0])
         numeric_cols = sample_df.select_dtypes(include=["number"]).columns.tolist()
@@ -42,6 +51,10 @@ class SequenceChunkedDataset:
         print(f"[Init] 🧬 Using {len(self.feature_columns)} numeric features: {self.feature_columns[:5]}{'...' if len(self.feature_columns) > 5 else ''}")
 
         self.input_size = len(self.feature_columns)
+
+    def _chunk_has_pos(self, chunk_path):
+        df = pd.read_csv(chunk_path, usecols=[self.label_column])
+        return (df[self.label_column] == 1).any()
 
     def resplit(self):
         from random import shuffle
