@@ -57,7 +57,7 @@ def run_iso_hybrid_pipeline(preprocess: bool = False) -> None:
     for i, (features, _) in enumerate(chunk_dataset.full_loader()):
         if i >= max_backbone_chunks:
             break
-        X_train.append(features)
+        X_train.append(features.squeeze(1).cpu().numpy())
     X_train = np.concatenate(X_train, axis=0)
     logging.info(f"🧠 Backbone fit on {len(X_train):,} samples from {i+1} chunks")
 
@@ -81,11 +81,11 @@ def run_iso_hybrid_pipeline(preprocess: bool = False) -> None:
     for ep in range(epochs):
         model.train()
         running_loss = 0.0
-        for xb_np, yb_t in chunk_dataset.train_loader():
-            # xb_np is numpy (N×F); labels are tensor already on correct device
-            yb_t = yb_t.float().unsqueeze(1).to(device)  # [N] -> [N,1]
+        for xb_t, yb_t in chunk_dataset.train_loader():
+            features_np = xb_t.squeeze(1).cpu().numpy()  # (N,1,F) → (N,F) numpy
+            yb_t = yb_t.float().unsqueeze(1).to(device)  # [N] → [N,1]
             optim.zero_grad()
-            logits = model(xb_np)                        # forward handles numpy
+            logits = model(features_np)
             loss = criterion(logits, yb_t)
             loss.backward()
             optim.step()
@@ -103,8 +103,9 @@ def run_iso_hybrid_pipeline(preprocess: bool = False) -> None:
     model.eval()
     tp = fp = fn = 0
     with torch.no_grad():
-        for idx, (features_np, labels_t) in enumerate(chunk_dataset.full_loader(), 1):
-            logits = model(features_np)                  # tensor [N,1]
+        for idx, (features_t, labels_t) in enumerate(chunk_dataset.full_loader(), 1):
+            features_np = features_t.squeeze(1).cpu().numpy()
+            logits = model(features_np)
             preds  = (torch.sigmoid(logits) > 0.5).int().cpu().numpy().ravel()
             labels = labels_t.cpu().numpy().astype(int)
 
