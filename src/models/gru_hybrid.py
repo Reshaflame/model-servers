@@ -155,12 +155,24 @@ def train_gru(config, loaders, input_size, tag, resume=True, eval_every_epoch=Tr
                     break
     return best_f1, model
 
-def train_hybrid(backbone_ckpt, loaders, tag="gru_hybrid", epochs=3, lr=1e-3):
+def train_hybrid(
+        backbone_ckpt,
+        loaders,
+        input_size,
+        hidden_size,
+        num_layers,
+        tag="gru_hybrid",
+        epochs=3,
+        lr=1e-3):
     train_loader, val_loader = loaders
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # ➊ load frozen backbone
-    dummy_gru = GRUAnomalyDetector(1,1)        # placeholder to load weights
+    # ➊ load frozen backbone with real dims
+    dummy_gru = GRUAnomalyDetector(
+        input_size=input_size,
+        hidden_size=hidden_size,
+        num_layers=num_layers,
+    )
     dummy_gru.load_state_dict(torch.load(backbone_ckpt, map_location="cpu"))
     backbone = dummy_gru.to(device)
     backbone.eval()

@@ -86,7 +86,11 @@ def run_pipeline():
     print("\n🚀  Starting hybrid fine-tune…")
     hybrid_model = train_hybrid("/app/models/gru_trained_model.pth",
                                 loaders=(dataset.train_loader, val_once),
-                                epochs=3, lr=1e-3)
+                                input_size=input_size,
+                                hidden_size=best_cfg["hidden_size"],
+                                num_layers=best_cfg["num_layers"],
+                                epochs=3,
+                                lr=1e-3)
     evaluate_and_export(hybrid_model,
                         dataset.full_loader(),
                         model_name="gru_hybrid",

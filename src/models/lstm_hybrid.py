@@ -127,12 +127,20 @@ def train_lstm(cfg, loaders, input_size, tag, resume=True, eval_every=True):
                     LOGGER.info("🛑 early-stop"); break
     return best_f1, model
 
-def train_hybrid(backbone_ckpt, loaders, tag="lstm_hybrid", epochs=3, lr=1e-3):
+def train_hybrid(
+        backbone_ckpt,
+        loaders,
+        input_size,
+        hidden_size,
+        num_layers,
+        tag="lstm_hybrid",
+        epochs=3,
+        lr=1e-3):
     train_loader, val_loader = loaders
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # ➊ load pre-trained backbone
-    dummy = LSTMRNNBackbone(1,1)         # shape placeholder
+    dummy = LSTMRNNBackbone(input_size, hidden_size, num_layers)
     dummy.load_state_dict(torch.load(backbone_ckpt, map_location="cpu"))
     backbone = dummy.to(dev).eval()
 

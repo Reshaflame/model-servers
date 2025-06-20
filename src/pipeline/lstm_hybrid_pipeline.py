@@ -99,6 +99,9 @@ def run_pipeline():
     hybrid = train_hybrid(
         "/app/models/lstm_rnn_trained_model.pth",
         loaders=(dataset.train_loader, val_once),
+        input_size=input_size,
+        hidden_size=best["hidden_size"],
+        num_layers=best["num_layers"],
         epochs=3,
         lr=1e-3,
     )
