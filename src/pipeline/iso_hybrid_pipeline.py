@@ -83,7 +83,12 @@ def run_iso_hybrid_pipeline(preprocess: bool = False) -> None:
         running_loss = 0.0
         for xb_t, yb_t in chunk_dataset.train_loader():
             features_np = xb_t.squeeze(1).cpu().numpy()  # (N,1,F) → (N,F) numpy
-            yb_t = yb_t.float().unsqueeze(1).to(device)  # [N] → [N,1]
+            yb_t = yb_t.float()
+            if yb_t.dim() == 1:           # [N]           -> [N,1]
+                yb_t = yb_t.unsqueeze(1)
+            elif yb_t.dim() > 2:          # [N,1,1] etc.  -> [N,1]
+                yb_t = yb_t.view(-1, 1)
+            yb_t = yb_t.to(device)
             optim.zero_grad()
             logits = model(features_np)
             loss = criterion(logits, yb_t)
@@ -106,8 +111,9 @@ def run_iso_hybrid_pipeline(preprocess: bool = False) -> None:
         for idx, (features_t, labels_t) in enumerate(chunk_dataset.full_loader(), 1):
             features_np = features_t.squeeze(1).cpu().numpy()
             logits = model(features_np)
+
             preds  = (torch.sigmoid(logits) > 0.5).int().cpu().numpy().ravel()
-            labels = labels_t.cpu().numpy().astype(int)
+            labels = labels_t.squeeze().cpu().numpy().astype(int)
 
             tp += np.logical_and(preds == 1, labels == 1).sum()
             fp += np.logical_and(preds == 1, labels == 0).sum()
