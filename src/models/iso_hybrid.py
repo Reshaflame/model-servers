@@ -36,7 +36,8 @@ class IsoHybrid(nn.Module):
     def forward(self, x_numpy):
         with torch.no_grad():
             score = self.backbone.score(x_numpy)         # shape (N,)
-        score_tensor = torch.tensor(score, dtype=torch.float32,
-                                    device=self.head[0].weight.device).unsqueeze(1)
+        device = self.bottleneck.weight.device
+        score_tensor = torch.as_tensor(score, dtype=torch.float32, device=device)\
+                           .unsqueeze(1)                 # (N,) → (N,1)
         feats8 = self.bottleneck(score_tensor)
         return self.head(feats8)                         # logits
