@@ -40,12 +40,13 @@ def run_iso_hybrid_pipeline(preprocess: bool = False) -> None:
     # 1.  Build chunked dataset (same code path as GRU, seq_len = 1)
     # ----------------------------------------------------------------
     chunk_dataset = SequenceChunkedDataset(
-        batch_size      = 5_000,             # ≈ rows per “batch”
+        chunk_dir       = CHUNKS_LABELED_PATH,
+        batch_size      = 5_000,
         shuffle_files   = False,
         label_column    = "label",
-        sequence_length = 1,                 # <- makes it “tabular”
-        device          = "cuda" if torch.cuda.is_available() else "cpu",
-        expected_features = expected_features
+        sequence_length = 1,
+        binary_labels   = True,
+        device          = "cuda" if torch.cuda.is_available() else "cpu"
     )
 
     # ----------------------------------------------------------------
