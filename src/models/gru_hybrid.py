@@ -73,7 +73,7 @@ class GRUHybrid(nn.Module):
             for p in self.gru.parameters():
                 p.requires_grad_(False)
 
-        self.bottleneck = nn.Linear(self.gru.fc.in_features, 8)
+        self.bottleneck = nn.Linear(1, 8)
         if freeze_bottleneck:
             for p in self.bottleneck.parameters():
                 p.requires_grad_(False)

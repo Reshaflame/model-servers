@@ -56,7 +56,7 @@ class LSTMHybrid(nn.Module):
         if freeze_backbone:
             for p in self.backbone.parameters(): p.requires_grad_(False)
 
-        self.bottleneck = nn.Linear(self.backbone.fc.in_features, 8)
+        self.bottleneck = nn.Linear(1, 8)  # backbone outputs 1-D logit
         if freeze_bottleneck:
             for p in self.bottleneck.parameters(): p.requires_grad_(False)
 
