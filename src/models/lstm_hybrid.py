@@ -36,11 +36,14 @@ class LSTMRNNBackbone(nn.Module):
                             dropout=0.2 if num_layers > 1 else 0)
         self.fc   = nn.Linear(hidden_size, out)
 
-    def forward(self, x):                 # x ▸ [B,T,F]  or  [B,F]
-        if x.dim() == 2: x = x.unsqueeze(1)
+    def forward(self, x):
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
         lstm_out, _ = self.lstm(x)
-        rnn_out , _ = self.rnn (lstm_out)
-        return self.fc(rnn_out[:, -1])    # logits only
+        rnn_out , _ = self.rnn(lstm_out)
+        h_last = rnn_out[:, -1]           # (B, hidden_size)
+        logits = self.fc(h_last)          # (B, 1)
+        return logits, h_last             # <-- tuple
 
 # ───────────────────────────────  2) hybrid head  ──────────────────────────── #
 class LSTMHybrid(nn.Module):
@@ -49,14 +52,17 @@ class LSTMHybrid(nn.Module):
     ➋ 1×8 bottleneck (optionally frozen later on FastAPI)  
     ➌ Small MLP head that we fine-tune in stage-2
     """
-    def __init__(self, backbone: LSTMRNNBackbone,
-                 freeze_backbone=True, freeze_bottleneck=False):
+    def __init__(self,
+                 backbone: LSTMRNNBackbone,
+                 hidden_size: int,
+                 freeze_backbone: bool = True,
+                 freeze_bottleneck: bool = False):
         super().__init__()
         self.backbone = backbone
         if freeze_backbone:
             for p in self.backbone.parameters(): p.requires_grad_(False)
 
-        self.bottleneck = nn.Linear(1, 8)  # backbone outputs 1-D logit
+        self.bottleneck = nn.Linear(hidden_size, 8)
         if freeze_bottleneck:
             for p in self.bottleneck.parameters(): p.requires_grad_(False)
 
@@ -67,10 +73,9 @@ class LSTMHybrid(nn.Module):
         )
 
     def forward(self, x):
-        logits = self.backbone(x)
-        z      = torch.sigmoid(logits)        # treat backbone output as prob.
-        z8     = self.bottleneck(z)
-        return self.head(z8)                  # final logits
+        logits, h = self.backbone(x)          # (B,1) , (B,hidden)
+        feats8 = self.bottleneck(h)           # bottleneck on hidden vector
+        return self.head(feats8)
 
 # ───────────────────────────────  3) training loops  ───────────────────────── #
 def _imbalance_weight(loader_fn, device):
@@ -103,14 +108,15 @@ def train_lstm(cfg, loaders, input_size, tag, resume=True, eval_every=True):
             xb, yb = xb.to(dev).float(), yb.to(dev).float()
             if yb.dim()==1: yb = yb.unsqueeze(1)
             optim.zero_grad()
-            loss = crit(model(xb), yb)
+            logits, _ = model(xb)
+            loss = crit(logits, yb)
             loss.backward()
             optim.step()
 
             # ── tiny DEBUG probe every ~200 batches ─────────────────
             if batch_id % 200 == 0:
                 with torch.no_grad():
-                    mean_logit = torch.sigmoid(model(xb)).mean().item()
+                    mean_logit = torch.sigmoid(logits).mean().item()
                 pos = int(yb.sum().item())
                 LOGGER.debug(f"      batch {batch_id:>5}  pos={pos:>3}/{yb.numel()}  "
                              f"mean_sigmoid={mean_logit:.6f}  loss={loss.item():.6f}")
@@ -144,7 +150,12 @@ def train_hybrid(
     dummy.load_state_dict(torch.load(backbone_ckpt, map_location="cpu"))
     backbone = dummy.to(dev).eval()
 
-    model = LSTMHybrid(backbone, freeze_backbone=True, freeze_bottleneck=False).to(dev)
+    model = LSTMHybrid(
+        backbone,
+        hidden_size=hidden_size,
+        freeze_backbone=True,
+        freeze_bottleneck=False,
+    ).to(dev)
     optim = torch.optim.Adam(model.head.parameters(), lr=lr)
     crit  = nn.BCEWithLogitsLoss()
 

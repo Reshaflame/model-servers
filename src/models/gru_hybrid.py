@@ -34,10 +34,13 @@ class GRUAnomalyDetector(nn.Module):
         self.fc  = nn.Linear(hidden_size, output_size)
         self.dropout = nn.Dropout(0.2)
 
-    def forward(self, x):                      # x → [B, T, F]  or  [B, F]
-        if x.dim() == 2: x = x.unsqueeze(1)    # add dummy time step
+    def forward(self, x):
+        if x.dim() == 2:
+            x = x.unsqueeze(1)
         h, _ = self.gru(x.contiguous())
-        return self.fc(self.dropout(h[:, -1])) # logits  (sigmoid applied later)
+        h_last = h[:, -1]                 # (B, hidden_size)
+        logits = self.fc(self.dropout(h_last))
+        return logits, h_last
 
 # small helpers
 def _ckpt_path(tag): return os.path.join(CKPT_DIR, f"{tag}.pt")
@@ -66,14 +69,18 @@ class GRUHybrid(nn.Module):
     ➋ 1×8 bottleneck linear layer (frozen as requested)  
     ➌ Small MLP head (trainable)
     """
-    def __init__(self, gru_backbone: GRUAnomalyDetector, freeze_gru=True, freeze_bottleneck=False):
+    def __init__(self,
+                 gru_backbone: GRUAnomalyDetector,
+                 hidden_size: int,
+                 freeze_gru: bool = True,
+                 freeze_bottleneck: bool = False):
         super().__init__()
         self.gru = gru_backbone
         if freeze_gru:
             for p in self.gru.parameters():
                 p.requires_grad_(False)
 
-        self.bottleneck = nn.Linear(1, 8)
+        self.bottleneck = nn.Linear(hidden_size, 8)
         if freeze_bottleneck:
             for p in self.bottleneck.parameters():
                 p.requires_grad_(False)
@@ -86,10 +93,9 @@ class GRUHybrid(nn.Module):
         )
 
     def forward(self, x):
-        logits_gru = self.gru(x)
-        feats = torch.sigmoid(logits_gru)
-        feats8 = self.bottleneck(feats)
-        return self.head(feats8)               
+        logits, h = self.gru(x)
+        feats8 = self.bottleneck(h)
+        return self.head(feats8)              
 
 # --------------------------------------------------------------------- #
 # 3.  Unified train routine                                              #
@@ -129,13 +135,14 @@ def train_gru(config, loaders, input_size, tag, resume=True, eval_every_epoch=Tr
                 xb = xb.unsqueeze(1)
 
             optim.zero_grad()
-            loss = crit(model(xb), yb)
+            logits, _ = model(xb)
+            loss = crit(logits, yb)
             loss.backward()
             optim.step()
             # -- light debug every ~200 mini-batches -----------------
             if batch_id % 200 == 0:
                 with torch.no_grad():
-                    mean_logit = torch.sigmoid(model(xb)).mean().item()
+                    mean_logit = torch.sigmoid(logits).mean().item()
                 pos = int(yb.sum().item())
                 LOGGER.debug(f"      batch {batch_id:>4}  pos={pos:>3}/{yb.numel()} "
                              f"mean_sigmoid={mean_logit:.6f}")
@@ -177,7 +184,12 @@ def train_hybrid(
     backbone = dummy_gru.to(device)
     backbone.eval()
 
-    model = GRUHybrid(backbone, freeze_gru=True, freeze_bottleneck=False).to(device)
+    model = GRUHybrid(
+        backbone,
+        hidden_size=hidden_size,
+        freeze_gru=True,
+        freeze_bottleneck=False,
+    ).to(device)
     # For FastAPI retraining: (Don't forget!)
     # model = GRUHybrid(backbone, freeze_gru=True, freeze_bottleneck=True)
     optim = torch.optim.Adam(model.head.parameters(), lr=lr)    # only head trainable
