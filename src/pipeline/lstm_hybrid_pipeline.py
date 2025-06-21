@@ -1,68 +1,81 @@
-# ─── src/pipeline/lstm_hybrid_pipeline.py ─────────────────────────────
+# ─── src/pipeline/lstm_hybrid_pipeline.py ──────────────────────────
 from glob import glob
 import os, pandas as pd, torch
-from utils.SequenceChunkedDataset import SequenceChunkedDataset
+from torch.utils.data import DataLoader, random_split
+
+from utils.balanced_dataset import GlobalBalancedDataset
 from utils.constants import CHUNKS_LABELED_PATH
 from utils.tuning import manual_gru_search
 from utils.evaluator import evaluate_and_export
 from utils.model_exporter import export_model
 from models.lstm_hybrid import train_lstm, train_hybrid
 
+# ------------------------------------------------------------------
 def run_pipeline():
     chunk_dir = CHUNKS_LABELED_PATH
-    first = glob(os.path.join(chunk_dir, "*.csv"))[0]
-    numeric = (
+    first     = glob(os.path.join(chunk_dir, "*.csv"))[0]
+
+    numeric_cols = (
         pd.read_csv(first)
           .drop(columns=["label"])
           .select_dtypes("number")
           .columns
     )
-    input_size = len(numeric)
+    input_size = len(numeric_cols)
+    device     = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # ── Build dataset (will split per-chunk internally) ──────────────
-    dataset = SequenceChunkedDataset(
+    # ── 1. build balanced dataset ----------------------------------
+    bal_ds = GlobalBalancedDataset(
         chunk_dir,
-        label_column="label",
-        batch_size=64,
-        shuffle_files=True,
-        split_ratio=0.9,           # 90 % train / 10 % val
-        binary_labels=True,
-        sequence_length=10,
-        device="cuda" if torch.cuda.is_available() else "cpu",
+        feature_cols=list(numeric_cols),
+        label_col="label",
+        sequence_length=10,      # LSTM uses 10-step sequences
+        minority_factor=0.30,    # ~30 % positives / batch
+        device=device,
     )
 
-    # ── Ensure val set contains ≥1 anomaly overall ───────────────────
-    def _count_pos(loader_fn):
-        p = t = 0
-        for _, y in loader_fn():
-            p += (y == 1).sum().item()
-            t += y.numel()
-        return p, t
+    # single stratified split: 90 % train / 10 % val
+    val_len   = int(0.10 * len(bal_ds))
+    train_len = len(bal_ds) - val_len
+    train_set, val_set = random_split(bal_ds, [train_len, val_len])
 
-    while True:
-        pos_val, tot_val = _count_pos(dataset.val_loader)
-        if pos_val > 0:
-            break
-        print("🔄 Re-seeding split — val had no positives")
-        dataset.resplit()
+    while bal_ds.labels[val_set.indices].sum() < 50:          # ≥50 anomalies in val
+        train_set, val_set = random_split(bal_ds, [train_len, val_len])
 
-    pos_tr, tot_tr = _count_pos(dataset.train_loader)
-    print(f"🧮 train positives ≈ {pos_tr}/{tot_tr}")
-    print(f"🧮  val  positives ≈ {pos_val}/{tot_val}")
+    train_loader = DataLoader(
+        train_set,
+        batch_size=64,
+        sampler=bal_ds.sampler,      # weighted sampler ⇢ balanced batches
+        drop_last=False,
+    )
+    val_loader = DataLoader(val_set, batch_size=64, shuffle=False)
 
-    def val_once():                 # single pass each call
-        yield from dataset.val_loader()
+    # helpers (lazy generators) so existing trainers stay unchanged
+    def train_iter():
+        yield from train_loader
 
-    # ── Stage 1: hyper-param grid search ─────────────────────────────
+    def val_once():
+        yield from val_loader     # one full pass each call
+
+    # small stats printout
+    pos_tr  = sum((y == 1).sum().item() for _, y in train_iter())
+    pos_val = sum((y == 1).sum().item() for _, y in val_once())
+    print(f"🧮 train positives ≈ {pos_tr}")
+    print(f"🧮   val positives ≈ {pos_val}")
+
+    # ------------------------------------------------------------------
+    # 2. Stage-1 grid search  (backbone)
+    # ------------------------------------------------------------------
     grid = [
         {"lr":1e-3, "hidden_size":64,  "num_layers":1, "epochs":6, "early_stop_patience":2},
         {"lr":5e-4, "hidden_size":128, "num_layers":1, "epochs":6, "early_stop_patience":2},
         {"lr":1e-3, "hidden_size":64,  "num_layers":2, "epochs":6, "early_stop_patience":2},
     ]
+
     def _train(cfg):
         best_f1, _ = train_lstm(
             cfg,
-            loaders=(dataset.train_loader, val_once),
+            loaders=(train_iter, val_once),
             input_size=input_size,
             tag=f"lstm_h{cfg['hidden_size']}_l{cfg['num_layers']}",
             resume=True,
@@ -73,11 +86,13 @@ def run_pipeline():
     best = manual_gru_search(_train, grid)
     print("🏅 Best LSTM config:", best)
 
-    # ── Stage 1b: final backbone training ────────────────────────────
+    # ------------------------------------------------------------------
+    # 3. Final backbone training with best config
+    # ------------------------------------------------------------------
     tag = f"lstm_h{best['hidden_size']}_l{best['num_layers']}"
     best_f1, lstm_model = train_lstm(
         best,
-        loaders=(dataset.train_loader, val_once),
+        loaders=(train_iter, val_once),
         input_size=input_size,
         tag=tag,
         resume=False,
@@ -85,20 +100,27 @@ def run_pipeline():
     )
     print(f"👍 Final backbone F1 = {best_f1:.4f}")
 
+    # combined loader for full-dataset evaluation / export
+    def full_loader():
+        yield from train_loader
+        yield from val_loader
+
     export_model(lstm_model, "/app/models/lstm_rnn_trained_model.pth")
     evaluate_and_export(
         lstm_model,
-        dataset.full_loader(),
+        full_loader(),
         model_name="lstm",
-        device=dataset.device,
+        device=device,
         export_ground_truth=True,
     )
 
-    # ── Stage 2: hybrid fine-tune ────────────────────────────────────
-    print("\\n🚀  Starting hybrid fine-tune…")
+    # ------------------------------------------------------------------
+    # 4. Hybrid fine-tune
+    # ------------------------------------------------------------------
+    print("\n🚀  Starting hybrid fine-tune…")
     hybrid = train_hybrid(
         "/app/models/lstm_rnn_trained_model.pth",
-        loaders=(dataset.train_loader, val_once),
+        loaders=(train_iter, val_once),
         input_size=input_size,
         hidden_size=best["hidden_size"],
         num_layers=best["num_layers"],
@@ -107,10 +129,11 @@ def run_pipeline():
     )
     evaluate_and_export(
         hybrid,
-        dataset.full_loader(),
+        full_loader(),
         model_name="lstm_hybrid",
-        device=dataset.device,
+        device=device,
     )
 
+# ----------------------------------------------------------------------
 if __name__ == "__main__":
     run_pipeline()
