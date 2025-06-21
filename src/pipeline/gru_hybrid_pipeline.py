@@ -65,8 +65,10 @@ def run_pipeline():
         train_set,
         batch_size=64,
         sampler=bal_ds.sampler,
-        shuffle=shuffle_flag,
-        drop_last=False,
+        shuffle=bal_ds.sampler is None,
+        num_workers=min(os.cpu_count(), 8),
+        persistent_workers=True,
+        pin_memory=torch.cuda.is_available(),
     )
     val_loader = DataLoader(val_set, batch_size=64, shuffle=False)
 
