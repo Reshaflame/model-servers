@@ -47,7 +47,7 @@ def run_pipeline():
     n_pos   = int(y_train.sum()); n_tot = len(y_train)
     w_pos   = 0.30 / max(1, n_pos)         # keep ~30 % positives
     w_neg   = 0.70 / (n_tot - n_pos)
-    import numpy as np, torch
+    import numpy as np
     weights = np.where(y_train == 1, w_pos, w_neg)
     from torch.utils.data import WeightedRandomSampler
     train_sampler = WeightedRandomSampler(weights,
