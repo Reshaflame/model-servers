@@ -3,7 +3,7 @@ from glob import glob
 import os, pandas as pd, torch
 from torch.utils.data import DataLoader, random_split
 
-from utils.balanced_dataset import GlobalBalancedDataset
+from utils.SequenceChunkedDataset import SequenceChunkedDataset
 from utils.constants import CHUNKS_LABELED_PATH
 from utils.tuning import manual_gru_search
 from utils.evaluator import evaluate_and_export
@@ -25,14 +25,19 @@ def run_pipeline():
     device     = "cuda" if torch.cuda.is_available() else "cpu"
 
     # ── 1. build balanced dataset ----------------------------------
-    bal_ds = GlobalBalancedDataset(
+    bal_ds = SequenceChunkedDataset(
         chunk_dir,
-        feature_cols=list(numeric_cols),
-        label_col="label",
-        sequence_length=10,      # LSTM uses 10-step sequences
-        minority_factor=0.30,    # ~30 % positives / batch
-        device=device,
+        label_column="label",
+        batch_size=64,
+        shuffle_files=True,     # randomise chunk order each epoch
+        binary_labels=True,     # 0 / 1 labels
+        sequence_length=10,     # 1 for GRU pipeline
+        device=device,          # "cuda" or "cpu"
+        split_ratio=0.9         # 90 % train • 10 % val *per chunk*
     )
+
+    if not any(bal_ds._chunk_has_pos(p) for p in bal_ds.chunk_paths):
+        raise RuntimeError("⚠️ No chunk contains anomalies!")
 
     # single stratified split: 90 % train / 10 % val
     val_len   = int(0.10 * len(bal_ds))
