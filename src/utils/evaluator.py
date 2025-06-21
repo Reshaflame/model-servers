@@ -35,7 +35,7 @@ def quick_f1(model, val_loader_fn, device, default_th=0.5):
     y_true = np.asarray(y_true)
     all_probs = np.asarray(all_probs)
 
-    for th in np.linspace(0.05, 0.95, 19):
+    for th in np.linspace(0.05, 0.95, 37):
         preds = (all_probs > th).astype(float)
         p  = precision_score(y_true, preds, zero_division=0)
         r  = recall_score   (y_true, preds, zero_division=0)
