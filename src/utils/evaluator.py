@@ -20,7 +20,10 @@ def quick_f1(model, val_loader_fn, device, default_th=0.5):
             x, y = x.to(device), y.to(device)
             if x.dim() == 2:  # GRU case
                 x = x.unsqueeze(1)
-            probs = torch.sigmoid(model(x)).flatten()
+            out = model(x)
+            if isinstance(out, tuple):          # unwrap (logits, hidden)
+                out = out[0]
+            probs = torch.sigmoid(out).flatten()
             y_true.extend(y.cpu().numpy().flatten())
             all_probs.extend(probs.cpu().numpy().flatten())
 
