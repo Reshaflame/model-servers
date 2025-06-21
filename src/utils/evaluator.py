@@ -73,6 +73,8 @@ def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_
                 batch_features = batch_features.unsqueeze(1)
 
             outputs = model(batch_features)
+            if isinstance(outputs, tuple):          # logits, hidden
+                outputs = outputs[0]
             preds = (outputs > 0.5).float().cpu().numpy().flatten()
             labels = batch_labels.cpu().numpy().flatten()
 
