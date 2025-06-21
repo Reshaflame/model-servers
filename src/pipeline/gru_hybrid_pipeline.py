@@ -41,18 +41,31 @@ def run_pipeline():
     while bal_ds.labels[val_set.indices].sum() < 50:
         train_set, val_set = random_split(bal_ds, [train_len, val_len])
 
-    # ── 1a. build sampler **for the train subset only** -------------
+    # ── build sampler only if subset is under 16 M rows ─────────────
     y_train = bal_ds.labels[train_set.indices]
-    n_pos   = int(y_train.sum()); n = len(y_train)
-    w_pos   = 0.30 / max(1, n_pos)          # keep 30 % anomaly prob.
-    w_neg   = 0.70 / (n - n_pos)
-    weights = np.where(y_train == 1, w_pos, w_neg)
-    train_sampler = WeightedRandomSampler(weights, num_samples=n, replacement=True)
+    n_pos   = int(y_train.sum()); n_tot = len(y_train)
+
+    if n_tot <= 16_000_000:                      # safe for torch.multinomial
+        import numpy as np
+        w_pos = 0.30 / max(1, n_pos)
+        w_neg = 0.70 / (n_tot - n_pos)
+        weights = np.where(y_train == 1, w_pos, w_neg)
+        from torch.utils.data import WeightedRandomSampler
+        sampler = WeightedRandomSampler(weights,
+                                        num_samples=n_tot,
+                                        replacement=True)
+        shuffle_flag = False
+    else:                                        # fall back to plain shuffle
+        sampler = None
+        shuffle_flag = True
+        print(f"[Sampler] ⚠️  Train set too large ({n_tot:,}); "
+              "using shuffled loader + pos_weight in loss.")
 
     train_loader = DataLoader(
         train_set,
         batch_size=64,
-        sampler=train_sampler,
+        sampler=sampler,
+        shuffle=shuffle_flag,
         drop_last=False,
     )
     val_loader = DataLoader(val_set, batch_size=64, shuffle=False)
