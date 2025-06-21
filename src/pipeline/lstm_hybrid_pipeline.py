@@ -42,10 +42,22 @@ def run_pipeline():
     while bal_ds.labels[val_set.indices].sum() < 50:          # ≥50 anomalies in val
         train_set, val_set = random_split(bal_ds, [train_len, val_len])
 
+    # ── build a NEW sampler only for the train subset ───────────────
+    y_train = bal_ds.labels[train_set.indices]
+    n_pos   = int(y_train.sum()); n_tot = len(y_train)
+    w_pos   = 0.30 / max(1, n_pos)         # keep ~30 % positives
+    w_neg   = 0.70 / (n_tot - n_pos)
+    import numpy as np, torch
+    weights = np.where(y_train == 1, w_pos, w_neg)
+    from torch.utils.data import WeightedRandomSampler
+    train_sampler = WeightedRandomSampler(weights,
+                                          num_samples=n_tot,
+                                          replacement=True)
+
     train_loader = DataLoader(
         train_set,
         batch_size=64,
-        sampler=bal_ds.sampler,      # weighted sampler ⇢ balanced batches
+        sampler=train_sampler,
         drop_last=False,
     )
     val_loader = DataLoader(val_set, batch_size=64, shuffle=False)

@@ -1,7 +1,7 @@
 # ─── src/pipeline/gru_hybrid_pipeline.py ────────────────────────────
 from glob import glob
-import os, pandas as pd, torch
-from torch.utils.data import DataLoader, random_split
+import os, pandas as pd, torch, numpy as np
+from torch.utils.data import DataLoader, random_split, WeightedRandomSampler
 
 from utils.balanced_dataset import GlobalBalancedDataset
 from utils.constants import CHUNKS_LABELED_PATH
@@ -24,47 +24,51 @@ def run_pipeline():
     input_size = len(numeric_cols)
     device     = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # ── 1. Build a global balanced dataset (seq_len = 1 for GRU) ----
+    # ── 1. global balanced dataset (seq_len = 1) --------------------
     bal_ds = GlobalBalancedDataset(
         chunk_dir,
         feature_cols=list(numeric_cols),
         label_col="label",
         sequence_length=1,
-        minority_factor=0.30,          # ≈30 % positives each batch
+        minority_factor=0.30,
         device=device,
     )
 
-    # Stratified split: 90 % train / 10 % val  (≥50 anomalies in val)
+    # stratified split: 90 % train / 10 % val, ≥50 positives in val
     val_len   = int(0.10 * len(bal_ds))
     train_len = len(bal_ds) - val_len
     train_set, val_set = random_split(bal_ds, [train_len, val_len])
-
-    while bal_ds.labels[val_set.indices].sum() < 50:          # ensure signal
+    while bal_ds.labels[val_set.indices].sum() < 50:
         train_set, val_set = random_split(bal_ds, [train_len, val_len])
+
+    # ── 1a. build sampler **for the train subset only** -------------
+    y_train = bal_ds.labels[train_set.indices]
+    n_pos   = int(y_train.sum()); n = len(y_train)
+    w_pos   = 0.30 / max(1, n_pos)          # keep 30 % anomaly prob.
+    w_neg   = 0.70 / (n - n_pos)
+    weights = np.where(y_train == 1, w_pos, w_neg)
+    train_sampler = WeightedRandomSampler(weights, num_samples=n, replacement=True)
 
     train_loader = DataLoader(
         train_set,
         batch_size=64,
-        sampler=bal_ds.sampler,      # weighted sampler → balanced batches
+        sampler=train_sampler,
         drop_last=False,
     )
     val_loader = DataLoader(val_set, batch_size=64, shuffle=False)
 
-    # helpers compatible with existing train_* functions
-    def train_iter():
-        yield from train_loader
-
-    def val_once():
-        yield from val_loader        # one full pass each call
+    # helpers
+    def train_iter(): yield from train_loader
+    def val_once():  yield from val_loader
 
     # quick stats
-    pos_tr  = sum((y == 1).sum().item() for _, y in train_iter())
-    pos_val = sum((y == 1).sum().item() for _, y in val_once())
+    pos_tr  = y_train.sum()
+    pos_val = bal_ds.labels[val_set.indices].sum()
     print(f"🧮 train positives ≈ {pos_tr}")
     print(f"🧮   val positives ≈ {pos_val}")
 
     # ----------------------------------------------------------------
-    # 2. Grid search for backbone hyper-params
+    # 2. Hyper-parameter grid search
     # ----------------------------------------------------------------
     grid = [
         {"lr":1e-3, "hidden_size":48, "num_layers":1, "epochs":6, "early_stop_patience":2},
@@ -88,7 +92,7 @@ def run_pipeline():
     print("🏅 Best GRU config:", best_cfg)
 
     # ----------------------------------------------------------------
-    # 3. Final backbone training with best config
+    # 3. Final backbone training
     # ----------------------------------------------------------------
     tag = f"gru_h{best_cfg['hidden_size']}_l{best_cfg['num_layers']}"
     best_f1, gru_model = train_gru(
@@ -101,7 +105,7 @@ def run_pipeline():
     )
     print(f"👍 Final GRU F1 = {best_f1:.4f}")
 
-    # combined loader for evaluation/export
+    # full loader for export
     def full_loader():
         yield from train_loader
         yield from val_loader
