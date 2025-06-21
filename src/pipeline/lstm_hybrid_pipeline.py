@@ -65,7 +65,7 @@ def run_pipeline():
     train_loader = DataLoader(
         train_set,
         batch_size=64,
-        sampler=sampler,
+        sampler=bal_ds.sampler,
         shuffle=shuffle_flag,
         drop_last=False,
     )
