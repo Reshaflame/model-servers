@@ -69,13 +69,24 @@ class GlobalBalancedDataset(Dataset):
                 f"[Sampler] ⚠️  Dataset too large ({n:,} samples); "
                 "sampler disabled – rely on pos_weight in loss."
             )
+        self._cache = {}
 
     # -----------------------------------------------------------------
     # PyTorch Dataset API
     # -----------------------------------------------------------------
+
+
     def __len__(self):
         return len(self.index)
 
+    def _get_df(self, cid):
+        if cid not in self._cache:
+            path = os.path.join(self.chunk_dir, self.chunks[cid])
+            self._cache[cid] = pd.read_csv(
+                path, usecols=self.features + [self.label_col]
+            )
+        return self._cache[cid]
+    
     def __getitem__(self, idx):
         cid, rid = self.index[idx]
         df = pd.read_csv(

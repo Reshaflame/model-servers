@@ -98,6 +98,7 @@ def run_pipeline():
             tag=f"gru_h{cfg['hidden_size']}_l{cfg['num_layers']}",
             resume=True,
             eval_every_epoch=True,
+            label_array=bal_ds.labels
         )
         return best_f1
 

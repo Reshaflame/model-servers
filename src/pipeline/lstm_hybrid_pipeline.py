@@ -101,6 +101,7 @@ def run_pipeline():
             tag=f"lstm_h{cfg['hidden_size']}_l{cfg['num_layers']}",
             resume=True,
             eval_every=True,
+            label_array=bal_ds.labels
         )
         return best_f1
 

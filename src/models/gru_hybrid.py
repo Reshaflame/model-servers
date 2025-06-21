@@ -1,76 +1,82 @@
-# src/models/gru_hybrid.py
+# ─── src/models/gru_hybrid.py ───────────────────────────────────────
 import os, logging, torch
 import torch.nn as nn
 from utils.evaluator import quick_f1
 from utils.logging_helpers import enable_full_debug
 
-LOG_DIR = "/workspace/logs"
+LOG_DIR  = "/workspace/logs"
 CKPT_DIR = "/workspace/checkpoints"
-os.makedirs(LOG_DIR, exist_ok=True);  os.makedirs(CKPT_DIR, exist_ok=True)
+os.makedirs(LOG_DIR,  exist_ok=True)
+os.makedirs(CKPT_DIR, exist_ok=True)
 
-def _setup_logger(name="GRU", logfile="gru_training.log"):
-    logger = logging.getLogger(name)
-    if logger.handlers:                # already initialised
-        return logger
-    fmt = "%(asctime)s [%(levelname)s] " + name + " – %(message)s"
-    logger.setLevel(logging.INFO)
-    fh = logging.FileHandler(os.path.join(LOG_DIR, logfile)); fh.setFormatter(logging.Formatter(fmt))
-    sh = logging.StreamHandler();                      sh.setFormatter(logging.Formatter(fmt))
-    logger.addHandler(fh); logger.addHandler(sh)
-    return logger
+# ------------------------------------------------------------------ #
+# 0.  Logger helper                                                  #
+# ------------------------------------------------------------------ #
+def _setup_logger(name: str = "GRU", logfile: str = "gru_training.log"):
+    L = logging.getLogger(name)
+    if not L.handlers:                               # first initialisation
+        fmt = "%(asctime)s [%(levelname)s] " + name + " – %(message)s"
+        L.setLevel(logging.INFO)
+        fh = logging.FileHandler(os.path.join(LOG_DIR, logfile))
+        fh.setFormatter(logging.Formatter(fmt))
+        sh = logging.StreamHandler()
+        sh.setFormatter(logging.Formatter(fmt))
+        L.addHandler(fh);  L.addHandler(sh)
+    return L
 
 LOGGER = _setup_logger()
 enable_full_debug(LOGGER)
 
-# --------------------------------------------------------------------- #
-# 1.  Basic GRU (1-2 layers, 48-64 units) + checkpoint helpers          #
-# --------------------------------------------------------------------- #
+# ------------------------------------------------------------------ #
+# 1.  Backbone – GRU + FC                                            #
+# ------------------------------------------------------------------ #
 class GRUAnomalyDetector(nn.Module):
-    def __init__(self, input_size, hidden_size=64, num_layers=1, output_size=1):
+    def __init__(self, input_size: int,
+                 hidden_size: int = 64,
+                 num_layers: int = 1,
+                 output_size: int = 1):
         super().__init__()
         self.gru = nn.GRU(input_size, hidden_size, num_layers,
-                          dropout=0.2 if num_layers > 1 else 0,
-                          batch_first=True)
+                          batch_first=True,
+                          dropout=0.2 if num_layers > 1 else 0.)
         self.fc  = nn.Linear(hidden_size, output_size)
         self.dropout = nn.Dropout(0.2)
 
     def forward(self, x):
-        if x.dim() == 2:
+        if x.dim() == 2:            # [B, F]  →  [B, 1, F]
             x = x.unsqueeze(1)
         h, _ = self.gru(x.contiguous())
-        h_last = h[:, -1]                 # (B, hidden_size)
+        h_last = h[:, -1]           # (B, hidden)
         logits = self.fc(self.dropout(h_last))
-        return logits, h_last
+        return logits, h_last       # tuple, like before
 
-# small helpers
-def _ckpt_path(tag): return os.path.join(CKPT_DIR, f"{tag}.pt")
-
-def save_ckpt(model, optim, epoch, tag):
+# tiny helpers
+def _ckpt_path(tag):                 return os.path.join(CKPT_DIR, f"{tag}.pt")
+def _save_ckpt(model, optim, ep, tag):
     torch.save({"model": model.state_dict(),
                 "optim": optim.state_dict(),
-                "epoch": epoch}, _ckpt_path(tag))
+                "epoch": ep}, _ckpt_path(tag))
     LOGGER.info(f"💾  Saved checkpoint: {_ckpt_path(tag)}")
 
-def load_ckpt(model, optim, tag):
+def _load_ckpt(model, optim, tag):
     path = _ckpt_path(tag)
-    if not os.path.exists(path): return 0
+    if not os.path.exists(path):
+        return 0
     state = torch.load(path, map_location="cpu")
     model.load_state_dict(state["model"])
-    if optim: optim.load_state_dict(state["optim"])
+    if optim:
+        optim.load_state_dict(state["optim"])
     LOGGER.info(f"🔁  Resumed from checkpoint: {path}")
     return state["epoch"]
 
-# --------------------------------------------------------------------- #
-# 2.  Hybrid model = frozen GRU ➊  → bottleneck 1×8 ➋ → MLP head ➌     #
-# --------------------------------------------------------------------- #
+# ------------------------------------------------------------------ #
+# 2.  Hybrid head                                                    #
+# ------------------------------------------------------------------ #
 class GRUHybrid(nn.Module):
     """
-    ➊ Pre-trained GRU backbone (frozen)  
-    ➋ 1×8 bottleneck linear layer (frozen as requested)  
-    ➌ Small MLP head (trainable)
+    Frozen GRU backbone ➊ → 1×8 bottleneck ➋ → tiny MLP head ➌
     """
-    def __init__(self,
-                 gru_backbone: GRUAnomalyDetector,
+    def __init__(self, gru_backbone: GRUAnomalyDetector,
                  hidden_size: int,
                  freeze_gru: bool = True,
                  freeze_bottleneck: bool = False):
@@ -85,7 +91,6 @@ class GRUHybrid(nn.Module):
             for p in self.bottleneck.parameters():
                 p.requires_grad_(False)
 
-
         self.head = nn.Sequential(
             nn.ReLU(),
             nn.Linear(8, 16), nn.ReLU(),
@@ -94,118 +99,128 @@ class GRUHybrid(nn.Module):
 
     def forward(self, x):
         logits, h = self.gru(x)
-        feats8 = self.bottleneck(h)
-        return self.head(feats8)              
+        z8 = self.bottleneck(h)
+        return self.head(z8)        # final logits
 
-# --------------------------------------------------------------------- #
-# 3.  Unified train routine                                              #
-# --------------------------------------------------------------------- #
-def train_gru(config, loaders, input_size, tag, resume=True, eval_every_epoch=True):
+# ------------------------------------------------------------------ #
+# 3.  Training helpers                                               #
+# ------------------------------------------------------------------ #
+def _compute_pos_weight(label_array, device):
+    """Fast helper for BCEWithLogitsLoss(pos_weight=…)."""
+    n_pos = int(label_array.sum())
+    n_neg = len(label_array) - n_pos
+    return torch.tensor([n_neg / max(1, n_pos)], device=device)
+
+
+def train_gru(config: dict,
+              loaders,
+              input_size: int,
+              tag: str,
+              resume: bool = True,
+              eval_every_epoch: bool = True,
+              label_array=None):
+    """
+    If `label_array` (np.ndarray of 0/1) is provided we compute pos_weight
+    in O(1).  Otherwise we fall back to the old *slow* sweep over the
+    training generator – useful for SequenceChunkedDataset.
+    """
     train_loader, val_loader_fn = loaders
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     model = GRUAnomalyDetector(input_size,
                                hidden_size=config["hidden_size"],
-                               num_layers=config["num_layers"]).to(device)
+                               num_layers=config["num_layers"]).to(dev)
     optim = torch.optim.Adam(model.parameters(), lr=config["lr"])
 
-    # imbalance handling
-    n_pos = n_neg = 0
-    for _, y in train_loader():                # generator – no parentheses
-        n_pos += (y == 1).sum().item(); n_neg += (y == 0).sum().item()
-    pos_weight = torch.tensor([n_neg / max(1, n_pos)], device=device)
+    # ---------- imbalance handling ---------------------------------
+    if label_array is not None:
+        pos_weight = _compute_pos_weight(label_array, dev)
+    else:                             # fallback (slow for huge datasets)
+        n_pos = n_neg = 0
+        for _, y in train_loader():
+            n_pos += (y == 1).sum().item()
+            n_neg += (y == 0).sum().item()
+        pos_weight = torch.tensor([n_neg / max(1, n_pos)], device=dev)
+
     crit = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    # ---------------------------------------------------------------
 
-    start = load_ckpt(model, optim, tag) if resume else 0
-    best_f1, patience = 0, 0
-    for epoch in range(start, config["epochs"]):
+    start_ep = _load_ckpt(model, optim, tag) if resume else 0
+    best_f1, patience = 0., 0
+    for ep in range(start_ep, config["epochs"]):
         model.train()
-        batch_id = 0
-        for xb, yb in train_loader():
-            xb = xb.to(device).float()
-            yb = yb.to(device).float()
-
-            # make sure yb is [B, 1]
-            if yb.dim() == 1:          # [B]  → [B,1]
+        for batch_id, (xb, yb) in enumerate(train_loader()):
+            xb = xb.to(dev).float()
+            yb = yb.to(dev).float()
+            if yb.dim() == 1:
                 yb = yb.unsqueeze(1)
-            elif yb.dim() == 2 and yb.size(1) > 1:  # [B,1,1]  → [B,1]
-                yb = yb.view(-1, 1)
-
-            if xb.dim() == 2:          # keep the old dummy-time-step logic
-                xb = xb.unsqueeze(1)
 
             optim.zero_grad()
             logits, _ = model(xb)
             loss = crit(logits, yb)
             loss.backward()
             optim.step()
-            # -- light debug every ~200 mini-batches -----------------
+
             if batch_id % 200 == 0:
                 with torch.no_grad():
-                    mean_logit = torch.sigmoid(logits).mean().item()
-                pos = int(yb.sum().item())
-                LOGGER.debug(f"      batch {batch_id:>4}  pos={pos:>3}/{yb.numel()} "
-                             f"mean_sigmoid={mean_logit:.6f}")
-            batch_id += 1
+                    mean_sig = torch.sigmoid(logits).mean().item()
+                LOGGER.debug(f"batch {batch_id:>5}  "
+                             f"mean_sigmoid={mean_sig:.6f}  "
+                             f"loss={loss.item():.6f}")
 
-        LOGGER.info(f"[{tag}] epoch {epoch+1}/{config['epochs']} – loss {loss.item():.6f}")
-        save_ckpt(model, optim, epoch+1, tag)
+        LOGGER.info(f"[{tag}] epoch {ep+1}/{config['epochs']} – loss {loss.item():.6f}")
+        _save_ckpt(model, optim, ep + 1, tag)
 
         if eval_every_epoch:
-            mets = quick_f1(model, val_loader_fn, device)
-            LOGGER.info(f"   F1={mets['F1']:.6f}  P={mets['Precision']:.6f}  R={mets['Recall']:.6f}")
-            if mets['F1'] > best_f1: best_f1, patience = mets['F1'], 0
+            mets = quick_f1(model, val_loader_fn, dev)
+            LOGGER.info(f"   F1={mets['F1']:.6f}  "
+                        f"P={mets['Precision']:.6f}  R={mets['Recall']:.6f}")
+            if mets["F1"] > best_f1:
+                best_f1, patience = mets["F1"], 0
             else:
                 patience += 1
                 if patience >= config["early_stop_patience"]:
-                    LOGGER.info("🛑  early-stopping")
+                    LOGGER.info("🛑 early-stopping")
                     break
     return best_f1, model
 
-def train_hybrid(
-        backbone_ckpt,
-        loaders,
-        input_size,
-        hidden_size,
-        num_layers,
-        tag="gru_hybrid",
-        epochs=3,
-        lr=1e-3):
-    train_loader, val_loader = loaders
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # ➊ load frozen backbone with real dims
-    dummy_gru = GRUAnomalyDetector(
-        input_size=input_size,
-        hidden_size=hidden_size,
-        num_layers=num_layers,
-    )
-    dummy_gru.load_state_dict(torch.load(backbone_ckpt, map_location="cpu"))
-    backbone = dummy_gru.to(device)
-    backbone.eval()
+def train_hybrid(backbone_ckpt: str,
+                 loaders,
+                 input_size: int,
+                 hidden_size: int,
+                 num_layers: int,
+                 tag: str = "gru_hybrid",
+                 epochs: int = 3,
+                 lr: float = 1e-3):
+    """Stage-2 fine-tune just the MLP head."""
+    train_loader, _ = loaders
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    model = GRUHybrid(
-        backbone,
-        hidden_size=hidden_size,
-        freeze_gru=True,
-        freeze_bottleneck=False,
-    ).to(device)
-    # For FastAPI retraining: (Don't forget!)
-    # model = GRUHybrid(backbone, freeze_gru=True, freeze_bottleneck=True)
-    optim = torch.optim.Adam(model.head.parameters(), lr=lr)    # only head trainable
+    # ➊ load frozen backbone
+    dummy = GRUAnomalyDetector(input_size, hidden_size, num_layers)
+    dummy.load_state_dict(torch.load(backbone_ckpt, map_location="cpu"))
+    backbone = dummy.to(dev).eval()
+
+    model = GRUHybrid(backbone, hidden_size,
+                      freeze_gru=True, freeze_bottleneck=False).to(dev)
+    optim = torch.optim.Adam(model.head.parameters(), lr=lr)
     crit  = nn.BCEWithLogitsLoss()
 
     for ep in range(epochs):
         model.train()
         for xb, yb in train_loader():
-            xb = xb.to(device).float()
-            yb = yb.to(device).float()
+            xb = xb.to(dev).float()
+            yb = yb.to(dev).float()
             if yb.dim() == 1:
                 yb = yb.unsqueeze(1)
-            elif yb.dim() == 2 and yb.size(1) > 1:
-                yb = yb.view(-1, 1)
-            optim.zero_grad(); loss = crit(model(xb), yb); loss.backward(); optim.step()
+
+            optim.zero_grad()
+            loss = crit(model(xb), yb)
+            loss.backward()
+            optim.step()
         LOGGER.info(f"[HYBRID] epoch {ep+1}/{epochs} – loss {loss.item():.6f}")
+
     torch.save(model.state_dict(), "/app/models/gru_hybrid.pth")
-    LOGGER.info("✅  hybrid model saved → /app/models/gru_hybrid.pth")
+    LOGGER.info("✅ hybrid model saved → /app/models/gru_hybrid.pth")
     return model
