@@ -32,7 +32,7 @@ def run_pipeline() -> None:
     # ── build fast balanced dataset  -------------------------------
     full_ds = FastBalancedDS(
         chunk_dir,
-        bank_path      = "/data/anomaly_bank.pt",   # <─ built once by build_anomaly_bank.py
+        bank_pt        = "/data/anomaly_bank.pt",   # <── use the correct kw-arg
         feature_cols   = list(numeric),
         seq_len        = 1,                         # GRU uses single-row “sequences”
         minority_ratio = 0.30                       # ≈30 % positives per mini-batch
