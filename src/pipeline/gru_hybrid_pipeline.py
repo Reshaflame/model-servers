@@ -1,19 +1,26 @@
 # ---------------------------------------------------------------
-#  GRU + MLP hybrid training pipeline (streaming per-chunk dataset)
+#  GRU + MLP hybrid training pipeline  (FAST balanced dataset)
 # ---------------------------------------------------------------
 from glob import glob
-import os, pandas as pd, torch
-from utils.SequenceChunkedDataset import SequenceChunkedDataset
-from utils.constants import CHUNKS_LABELED_PATH
-from utils.tuning   import manual_gru_search
-from utils.evaluator import evaluate_and_export
-from utils.model_exporter import export_model
-from models.gru_hybrid import train_gru, train_hybrid
+import os
+import pandas as pd
+import torch
+from torch.utils.data import DataLoader, random_split
 
+from utils.fast_balanced_dataset import FastBalancedDS
+from utils.dl_helpers          import to_device
+from utils.constants           import CHUNKS_LABELED_PATH
+from utils.tuning              import manual_gru_search
+from utils.evaluator           import evaluate_and_export
+from utils.model_exporter      import export_model
+from models.gru_hybrid         import train_gru, train_hybrid
+
+# ------------------------------------------------------------------
 def run_pipeline() -> None:
-    chunk_dir = CHUNKS_LABELED_PATH
-    first_csv = glob(os.path.join(chunk_dir, "*.csv"))[0]
-    numeric   = (
+    # ── dataset meta ------------------------------------------------
+    chunk_dir  = CHUNKS_LABELED_PATH
+    first_csv  = glob(os.path.join(chunk_dir, "*.csv"))[0]
+    numeric    = (
         pd.read_csv(first_csv)
           .drop(columns=["label"])
           .select_dtypes("number")
@@ -22,29 +29,50 @@ def run_pipeline() -> None:
     input_size = len(numeric)
     device     = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # ---------- dataset (streaming, balanced per chunk) ----------
-    dataset = SequenceChunkedDataset(
+    # ── build fast balanced dataset  -------------------------------
+    full_ds = FastBalancedDS(
         chunk_dir,
-        label_column="label",
-        batch_size=64,
-        shuffle_files=True,
-        binary_labels=True,
-        sequence_length=1,   # GRU uses single-row sequences
-        device=device,
-        split_ratio=0.9      # 90 % train • 10 % val **per chunk**
+        bank_path      = "/data/anomaly_bank.pt",   # <─ built once by build_anomaly_bank.py
+        feature_cols   = list(numeric),
+        seq_len        = 1,                         # GRU uses single-row “sequences”
+        minority_ratio = 0.30                       # ≈30 % positives per mini-batch
     )
 
-    train_iter = dataset.train_loader      # generator
-    val_once   = dataset.val_loader        # call ⇒ one full val pass
-    full_iter  = dataset.full_loader       # train + val
+    # single stratified split (90 % train / 10 % val)
+    val_len   = int(0.10 * len(full_ds))
+    train_len = len(full_ds) - val_len
+    train_set, val_set = random_split(full_ds, [train_len, val_len])
 
-    # tiny stats for the user
-    pos_tr  = sum((y == 1).sum().item() for _, y in train_iter())
-    pos_val = sum((y == 1).sum().item() for _, y in val_once())
+    # ── dataloaders -------------------------------------------------
+    train_loader = DataLoader(
+        train_set,
+        batch_size   = 64,
+        shuffle      = True,
+        num_workers  = 4,
+        pin_memory   = (device != "cpu"),
+        collate_fn   = lambda b: to_device(b, device)
+    )
+    val_loader = DataLoader(
+        val_set,
+        batch_size   = 64,
+        shuffle      = False,
+        num_workers  = 2,
+        pin_memory   = (device != "cpu"),
+        collate_fn   = lambda b: to_device(b, device)
+    )
+
+    # adapt existing helpers so the rest of the code is unchanged
+    def train_iter():     yield from train_loader
+    def val_once():       yield from val_loader
+    def full_iter():      yield from train_loader; yield from val_loader
+
+    # quick stats
+    pos_tr  = sum(int(y.sum()) for _, y in train_iter())
+    pos_val = sum(int(y.sum()) for _, y in val_once())
     print(f"🧮 train positives ≈ {pos_tr}")
     print(f"🧮   val positives ≈ {pos_val}")
 
-    # ---------- stage-1 : manual grid search ---------------------
+    # ── stage-1 : manual grid search -------------------------------
     grid = [
         {"lr":1e-3 , "hidden_size":48, "num_layers":1, "epochs":6, "early_stop_patience":2},
         {"lr":5e-4 , "hidden_size":64, "num_layers":1, "epochs":6, "early_stop_patience":2},
@@ -66,7 +94,7 @@ def run_pipeline() -> None:
     best_cfg = manual_gru_search(_train, grid)
     print("🏅 Best GRU config:", best_cfg)
 
-    # ---------- stage-1b : final backbone training ---------------
+    # ── stage-1b : backbone re-train with best params --------------
     tag = f"gru_h{best_cfg['hidden_size']}_l{best_cfg['num_layers']}"
     best_f1, gru_backbone = train_gru(
         best_cfg,
@@ -83,7 +111,7 @@ def run_pipeline() -> None:
         gru_backbone, full_iter(), model_name="gru", device=device, export_ground_truth=True
     )
 
-    # ---------- stage-2 : hybrid fine-tune -----------------------
+    # ── stage-2 : hybrid fine-tune ---------------------------------
     print("\n🚀  Starting hybrid fine-tune…")
     hybrid = train_hybrid(
         "/app/models/gru_trained_model.pth",
@@ -98,5 +126,6 @@ def run_pipeline() -> None:
         hybrid, full_iter(), model_name="gru_hybrid", device=device
     )
 
+# --------------------------------------------------------------------
 if __name__ == "__main__":
     run_pipeline()
