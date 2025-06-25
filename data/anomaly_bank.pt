@@ -1,0 +1,4 @@
+bank = torch.load("/data/anomaly_bank.pt")
+print(bank.keys())   # ➜ dict_keys(['X', 'y'])
+print(bank['X'].shape, bank['y'].shape)
+# e.g. torch.Size([12345, 1, 56])  torch.Size([12345, 1])
