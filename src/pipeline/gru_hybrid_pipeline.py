@@ -102,6 +102,8 @@ def run_pipeline() -> None:
             tag=f"gru_h{cfg['hidden_size']}_l{cfg['num_layers']}",
             resume=True,
             eval_every_epoch=True,
+            n_bank_pos = pos_tr,
+            pos_ratio  = 0.30
         )
         return best_f1
 

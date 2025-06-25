@@ -27,6 +27,19 @@ def _setup_logger(name: str = "GRU", logfile: str = "gru_training.log"):
 LOGGER = _setup_logger()
 enable_full_debug(LOGGER)
 
+# ─── imbalance helper (no DataLoader scan) ─────────────────────────
+def compute_bank_pos_weight(n_pos: int, pos_ratio: float, device):
+    """
+    Given:
+      n_pos      – number of positive sequences in the anomaly bank
+      pos_ratio  – target share of positives the FastBalancedDS produces
+    returns:
+      1-element tensor suitable for BCEWithLogitsLoss(pos_weight=…)
+    """
+    n_neg = int(n_pos * (1. - pos_ratio) / pos_ratio)
+    return torch.tensor([n_neg / max(1, n_pos)], device=device)
+
+
 # ------------------------------------------------------------------ #
 # 1.  Backbone – GRU + FC                                            #
 # ------------------------------------------------------------------ #
@@ -111,14 +124,15 @@ def _compute_pos_weight(label_array, device):
     n_neg = len(label_array) - n_pos
     return torch.tensor([n_neg / max(1, n_pos)], device=device)
 
-
 def train_gru(config: dict,
               loaders,
               input_size: int,
               tag: str,
               resume: bool = True,
               eval_every_epoch: bool = True,
-              label_array=None):
+              *,                     
+              n_bank_pos: int | None = None,
+              pos_ratio:  float | None = None):
     """
     If `label_array` (np.ndarray of 0/1) is provided we compute pos_weight
     in O(1).  Otherwise we fall back to the old *slow* sweep over the
@@ -132,15 +146,16 @@ def train_gru(config: dict,
                                num_layers=config["num_layers"]).to(dev)
     optim = torch.optim.Adam(model.parameters(), lr=config["lr"])
 
-    # ---------- imbalance handling ---------------------------------
-    if label_array is not None:
-        pos_weight = _compute_pos_weight(label_array, dev)
-    else:                             # fallback (slow for huge datasets)
+        # ---------- imbalance handling ---------------------------------
+    if n_bank_pos is not None and pos_ratio is not None:
+        pos_weight = compute_bank_pos_weight(n_bank_pos, pos_ratio, dev)
+    else:                                         # fallback (slow)
         n_pos = n_neg = 0
         for _, y in train_loader():
             n_pos += (y == 1).sum().item()
             n_neg += (y == 0).sum().item()
         pos_weight = torch.tensor([n_neg / max(1, n_pos)], device=dev)
+
 
     crit = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     # ---------------------------------------------------------------
