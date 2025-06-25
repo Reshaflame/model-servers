@@ -15,7 +15,7 @@ class FastBalancedDS(Dataset):
         self.device = None      # keep cpu; we move in collate_fn
 
     def __len__(self):               
-        return 100_000_000
+        return 200_000
 
     def __getitem__(self, _):
         if random.random() < self.ratio:

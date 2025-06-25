@@ -9,7 +9,7 @@ from torch.utils.data import DataLoader, random_split
 
 from utils.fast_balanced_dataset import FastBalancedDS
 from utils.build_anomaly_bank  import build_if_needed
-from utils.dl_helpers          import to_device
+from utils.dl_helpers          import stack_batch, to_device
 from utils.constants           import CHUNKS_LABELED_PATH
 from utils.tuning              import manual_gru_search
 from utils.evaluator           import evaluate_and_export
@@ -59,27 +59,32 @@ def run_pipeline() -> None:
         shuffle      = True,
         num_workers  = 4,
         pin_memory   = (device != "cpu"),
-        collate_fn   = lambda b: to_device(b, device)
+        collate_fn   = stack_batch
     )
     val_loader = DataLoader(
         val_set,
         batch_size   = 64,
         shuffle      = False,
-        num_workers  = 2,
+        num_workers  = 4,
         pin_memory   = (device != "cpu"),
-        collate_fn   = lambda b: to_device(b, device)
+        collate_fn   = stack_batch
     )
 
     # adapt existing helpers so the rest of the code is unchanged
-    def train_iter():     yield from train_loader
+    def train_iter():
+        for cpu_batch in train_loader:           # ← still on CPU here
+            yield to_device(cpu_batch, device)
     def val_once():       yield from val_loader
     def full_iter():      yield from train_loader; yield from val_loader
 
     # quick stats
-    pos_tr  = sum(int(y.sum()) for _, y in train_iter())
-    pos_val = sum(int(y.sum()) for _, y in val_once())
-    print(f"🧮 train positives ≈ {pos_tr}")
-    print(f"🧮   val positives ≈ {pos_val}")
+    pos_tr = full_ds.pos_X.shape[0]                      # every anomaly in the bank
+    with torch.no_grad():
+        for x_cpu, y_cpu in train_loader:                # one batch is enough
+            est_neg_per_batch = int((y_cpu == 0).sum())
+            break
+    print(f"🧮 positives in bank        : {pos_tr}")
+    print(f"🧮 negatives per train batch: {est_neg_per_batch}")
 
     # ── stage-1 : manual grid search -------------------------------
     grid = [
