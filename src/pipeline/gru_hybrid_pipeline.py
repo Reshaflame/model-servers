@@ -35,7 +35,7 @@ def run_pipeline() -> None:
         bank_pt        = "/data/anomaly_bank.pt",   # <── use the correct kw-arg
         feature_cols   = list(numeric),
         seq_len        = 1,                         # GRU uses single-row “sequences”
-        minority_ratio = 0.30                       # ≈30 % positives per mini-batch
+        pos_ratio      = 0.30                        # ≈30 % positives per mini-batch
     )
 
     # single stratified split (90 % train / 10 % val)
