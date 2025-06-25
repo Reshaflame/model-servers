@@ -36,7 +36,7 @@ def compute_bank_pos_weight(n_pos: int, pos_ratio: float, device):
     returns:
       1-element tensor suitable for BCEWithLogitsLoss(pos_weight=…)
     """
-    n_neg = int(n_pos * (1. - pos_ratio) / pos_ratio)
+    n_neg = int(n_pos * (1 - pos_ratio) / pos_ratio)
     return torch.tensor([n_neg / max(1, n_pos)], device=device)
 
 
@@ -149,14 +149,12 @@ def train_gru(config: dict,
         # ---------- imbalance handling ---------------------------------
     if n_bank_pos is not None and pos_ratio is not None:
         pos_weight = compute_bank_pos_weight(n_bank_pos, pos_ratio, dev)
-    else:                                         # fallback (slow)
+    else:                                     # fallback (slow)
         n_pos = n_neg = 0
         for _, y in train_loader():
-            n_pos += (y == 1).sum().item()
-            n_neg += (y == 0).sum().item()
+            n_pos += int((y == 1).sum())
+            n_neg += int((y == 0).sum())
         pos_weight = torch.tensor([n_neg / max(1, n_pos)], device=dev)
-
-
     crit = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     # ---------------------------------------------------------------
 
