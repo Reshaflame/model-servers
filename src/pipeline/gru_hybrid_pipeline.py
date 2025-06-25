@@ -31,7 +31,12 @@ def run_pipeline() -> None:
     device     = "cuda" if torch.cuda.is_available() else "cpu"
 
     BANK_PT = "/workspace/model-servers/data/anomaly_bank.pt"
-    build_if_needed(CHUNKS_LABELED_PATH, BANK_PT, seq_len=1)   # GRU uses 1-step
+    build_if_needed(
+        src_dir      = CHUNKS_LABELED_PATH,
+        out_pt       = BANK_PT,
+        feature_cols = list(numeric),  # ← same numeric list you already have
+        seq_len      = 1               # 1-step sequences for GRU
+    )
     
     # ── build fast balanced dataset  -------------------------------
     full_ds = FastBalancedDS(
