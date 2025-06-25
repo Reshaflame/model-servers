@@ -15,8 +15,11 @@ import numpy as np
 import pandas as pd
 import torch
 
-from utils.constants import CHUNKS_LABELED_PATH  # keeps everything relative
-
+try:                                    # when run as  python -m src.utils.build_negative_bank
+    from .constants import CHUNKS_LABELED_PATH
+except ImportError:                     # when imported as  from utils.build_negative_bank import …
+    from utils.constants import CHUNKS_LABELED_PATH
+    
 # -----------------------------------------------------------------
 def build_bank(src_dir: str, out_pt: str, seq_len: int = 1,
                feature_cols: list[str] | None = None) -> None:

@@ -10,7 +10,11 @@ or   python -m src.utils.build_anomaly_bank --seq 1  --src custom_dir --out cust
 from __future__ import annotations
 import os, argparse, glob, numpy as np, pandas as pd, torch
 from pathlib import Path
-from utils.constants import CHUNKS_LABELED_PATH   # ← *relative* path
+
+try:                                   
+    from .constants import CHUNKS_LABELED_PATH
+except ImportError:                    
+    from utils.constants import CHUNKS_LABELED_PATH
 
 # -----------------------------------------------------------------
 def build_bank(src_dir: str, out_pt: str, seq_len: int = 1,
