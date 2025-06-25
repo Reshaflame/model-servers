@@ -8,6 +8,7 @@ import torch
 from torch.utils.data import DataLoader, random_split
 
 from utils.fast_balanced_dataset import FastBalancedDS
+from utils.build_anomaly_bank  import build_if_needed
 from utils.dl_helpers          import to_device
 from utils.constants           import CHUNKS_LABELED_PATH
 from utils.tuning              import manual_gru_search
@@ -29,10 +30,13 @@ def run_pipeline() -> None:
     input_size = len(numeric)
     device     = "cuda" if torch.cuda.is_available() else "cpu"
 
+    BANK_PT = "/workspace/model-servers/data/anomaly_bank.pt"
+    build_if_needed(CHUNKS_LABELED_PATH, BANK_PT, seq_len=1)   # GRU uses 1-step
+    
     # ── build fast balanced dataset  -------------------------------
     full_ds = FastBalancedDS(
         chunk_dir,
-        bank_pt="/workspace/model-servers/data/anomaly_bank.pt",  # <── use the correct kw-arg
+        bank_pt        = BANK_PT,  
         feature_cols   = list(numeric),
         seq_len        = 1,                         # GRU uses single-row “sequences”
         pos_ratio      = 0.30                        # ≈30 % positives per mini-batch
