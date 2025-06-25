@@ -1,61 +1,81 @@
-# ─── utils/build_anomaly_bank.py ─────────────────────────────────────
-import os, glob, torch, pandas as pd, numpy as np
+# ─── src/utils/build_anomaly_bank.py ─────────────────────────────
+"""
+Builds / refreshes an anomaly-only sequence bank so we can draw
+positives quickly during training.
 
-def _collect_numeric(df, feature_cols):
-    """Return an (seq_len, F) float32 numpy array from df[feature_cols]."""
-    return (
-        df[feature_cols]
-        .apply(pd.to_numeric, errors="coerce")  # strings → NaN
-        .fillna(0.0)
-        .values
-        .astype("float32")
-    )
+Usage (one-off):
+    python -m src.utils.build_anomaly_bank         # <── default paths
+or   python -m src.utils.build_anomaly_bank --seq 1  --src custom_dir --out custom_bank.pt
+"""
+from __future__ import annotations
+import os, argparse, glob, numpy as np, pandas as pd, torch
+from pathlib import Path
+from utils.constants import CHUNKS_LABELED_PATH   # ← *relative* path
 
-def build_bank(src_dir: str, out_pt: str, feature_cols, seq_len: int = 10) -> None:
+# -----------------------------------------------------------------
+def build_bank(src_dir: str, out_pt: str, seq_len: int = 1,
+               feature_cols: list[str] | None = None) -> None:
+    src_dir = Path(src_dir)
+    files   = sorted(src_dir.glob("*.csv"))
+    if not files:
+        raise RuntimeError(f"No CSV files found in {src_dir}")
+
+    # --- decide which numeric columns to keep (once) --------------
+    if feature_cols is None:
+        sample_df   = pd.read_csv(files[0])
+        feature_cols = [c for c in sample_df.select_dtypes("number").columns
+                        if c != "label"]
+
     xs, ys = [], []
-    csvs = glob.glob(os.path.join(src_dir, "*.csv"))
-    assert csvs, f"No CSV files found in {src_dir!r}"
-
-    for fname in csvs:
-        df = pd.read_csv(fname, usecols=feature_cols + ["label"])
-        pos_idx = np.where(df["label"].values == 1)[0]
-        for idx in pos_idx:
-            if idx < seq_len - 1:
+    for f in files:
+        df  = pd.read_csv(f)
+        pos = np.where(df["label"].values == 1)[0]
+        for i in pos:
+            if i < seq_len - 1:
                 continue
-            window = _collect_numeric(
-                df.iloc[idx - seq_len + 1 : idx + 1], feature_cols
-            )
-            xs.append(window)
-            ys.append([1.0])
+            seq = (df.iloc[i-seq_len+1:i+1][feature_cols]
+                     .values.astype("float32"))
+            xs.append(seq)
+            ys.append(1.)
 
-    xs = torch.tensor(xs)
-    ys = torch.tensor(ys)
-    os.makedirs(os.path.dirname(out_pt), exist_ok=True)
-    torch.save({"X": xs, "y": ys}, out_pt)
-    print(f"✅  anomaly bank built: {xs.shape[0]:,} sequences → {out_pt}")
+    if not xs:
+        raise RuntimeError("No positive sequences found — bank would be empty.")
 
-def build_if_needed(src_dir: str, out_pt: str, feature_cols, seq_len: int = 10):
-    """Re-build the bank iff it is missing or empty/corrupted."""
-    if os.path.exists(out_pt):
+    X = torch.tensor(np.asarray(xs))          # (P, seq, F)
+    y = torch.ones(len(xs), 1)                # all ones
+
+    torch.save({"X": X, "y": y}, out_pt)
+    print(f"✅  anomaly bank built: {X.shape[0]} sequences → {out_pt}")
+
+
+# -----------------------------------------------------------------
+def main():
+    root = Path(__file__).resolve().parents[2]      # repo root
+    default_src = root / CHUNKS_LABELED_PATH
+    default_out = root / "data" / "anomaly_bank.pt"
+
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--src",  default=str(default_src),
+                    help="folder with labeled chunk CSVs")
+    ap.add_argument("--out",  default=str(default_out),
+                    help="output .pt file")
+    ap.add_argument("--seq",  type=int, default=1,
+                    help="sequence length (1 for GRU, 10 for LSTM, etc.)")
+    args = ap.parse_args()
+
+    out_pt = Path(args.out)
+    if out_pt.exists():
         try:
             bank = torch.load(out_pt, map_location="cpu")
-            if bank["X"].numel() > 0:
-                return                        # ✓ ready to use
+            if "X" in bank and bank["X"].numel() > 0:
+                print(f"ℹ️  {out_pt} already exists with "
+                      f"{bank['X'].shape[0]} sequences — nothing to do.")
+                return
         except Exception:
-            pass
-        print("⚠️  anomaly_bank.pt is empty / corrupted – rebuilding …")
+            print("⚠️  existing file unreadable — rebuilding …")
 
-    build_bank(src_dir, out_pt, feature_cols, seq_len)
+    build_bank(args.src, out_pt, seq_len=args.seq)
 
-# --------------------------------------------------------------------
-if __name__ == "__main__":                     # manual run
-    SRC = "/data/labeled_chunks"
-    OUT = "/data/anomaly_bank.pt"
-    FEATS = (
-        pd.read_csv(glob.glob(os.path.join(SRC, "*.csv"))[0])
-          .drop(columns="label")
-          .select_dtypes("number")
-          .columns
-          .tolist()
-    )
-    build_bank(SRC, OUT, FEATS, seq_len=10)
+# -----------------------------------------------------------------
+if __name__ == "__main__":
+    main()
