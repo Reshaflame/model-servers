@@ -7,7 +7,7 @@ from torch.utils.data import DataLoader
 
 from utils.fast_balanced_dataset import FastBalancedDS                # ⬅ RAM-banks dataset
 from utils.build_anomaly_bank    import build_if_needed as build_pos_bank
-from utils.build_negative_bank   import build_bank as build_negative_bank
+from utils.build_negative_bank   import build_if_needed as build_negative_bank
 from utils.dl_helpers            import stack_batch, to_device
 from utils.constants             import CHUNKS_LABELED_PATH
 from utils.tuning                import manual_gru_search
