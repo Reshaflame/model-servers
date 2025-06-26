@@ -59,6 +59,8 @@ def build_bank(src_dir: str,
     X = torch.tensor(np.asarray(xs))          # (N, seq_len, F)
     os.makedirs(Path(out_pt).parent, exist_ok=True)
     torch.save({"X": X}, out_pt)
+    with open(str(out_pt) + ".meta", "w") as f:
+        f.write(str(X.shape))  # e.g., (17180217, 1, 56)
     print(f"✅  negative bank built: {X.shape[0]} sequences → {out_pt}")
 
 # ------------------------------------------------------------------ #
@@ -69,30 +71,38 @@ def build_if_needed(src_dir: str,
                     feature_cols: list[str],
                     seq_len: int = 1) -> None:
     """
-    • If `out_pt` exists *and* tensor shape matches (`seq_len`, `|F|`)
-      the function exits silently.  
-    • Otherwise the bank is rebuilt via `build_bank`.
+    • If `out_pt` exists and `.meta` file matches shape (seq_len, |F|),
+      skip rebuilding.
+    • Otherwise rebuild the anomaly bank with `build_bank(...)`.
     """
-    if os.path.exists(out_pt):
+    meta_path = out_pt + ".meta"
+
+    if os.path.exists(out_pt) and os.path.exists(meta_path):
         try:
-            bank = torch.load(out_pt, map_location="cpu")
-            ok = (
-                isinstance(bank, dict)
-                and "X" in bank
-                and bank["X"].ndim == 3
-                and bank["X"].shape[1] == seq_len
-                and bank["X"].shape[2] == len(feature_cols)
-            )
-            if ok:
-                n = bank["X"].shape[0]
-                print(f"ℹ️  {out_pt} already exists with {n} sequences — nothing to do.")
+            with open(meta_path, "r") as f:
+                meta = f.read().strip().split(",")
+                saved_seq_len = int(meta[0])
+                saved_num_feat = int(meta[1])
+                num_samples = int(meta[2])
+            
+            if saved_seq_len == seq_len and saved_num_feat == len(feature_cols):
+                print(f"ℹ️  {out_pt} already exists with {num_samples} sequences — nothing to do.")
                 return
             else:
-                print(f"⚠️  {out_pt} exists but is incompatible — rebuilding …")
+                print(f"⚠️  {out_pt} exists but is incompatible (meta mismatch) — rebuilding …")
         except Exception as e:
-            print(f"⚠️  cannot load existing bank ({e}) — rebuilding …")
+            print(f"⚠️  meta file unreadable or corrupt ({e}) — rebuilding …")
 
+    # otherwise: rebuild and write meta
     build_bank(src_dir, out_pt, seq_len, feature_cols)
+    try:
+        bank = torch.load(out_pt, map_location="cpu")
+        shape = bank["X"].shape  # (N, seq, F)
+        with open(meta_path, "w") as f:
+            f.write(f"{shape[1]},{shape[2]},{shape[0]}")  # seq_len,num_feat,num_samples
+    except Exception as e:
+        print(f"⚠️  Failed to write meta after rebuild: {e}")
+
 
 # ------------------------------------------------------------------ #
 #  CLI entry-point                                                   #
