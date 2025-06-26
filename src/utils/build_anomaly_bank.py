@@ -51,7 +51,39 @@ def build_bank(src_dir: str, out_pt: str, seq_len: int = 1,
     torch.save({"X": X, "y": y}, out_pt)
     print(f"✅  anomaly bank built: {X.shape[0]} sequences → {out_pt}")
 
+# ── helper: build only when required ────────────────────────────────
+def build_if_needed(
+    src_dir: str,
+    out_pt: str,
+    feature_cols: list[str],
+    seq_len: int = 1,
+) -> None:
+    """
+    • If `out_pt` already exists **and** looks compatible, do nothing.  
+    • Otherwise rebuild the anomaly bank with `build_bank(...)`.
+    """
+    if os.path.exists(out_pt):
+        try:
+            bank = torch.load(out_pt, map_location="cpu")
+            ok   = (
+                isinstance(bank, dict)
+                and "X" in bank
+                and bank["X"].ndim == 3  # (N, seq, F)
+                and bank["X"].shape[1] == seq_len
+                and bank["X"].shape[2] == len(feature_cols)
+            )
+            if ok:
+                n = bank["X"].shape[0]
+                print(f"ℹ️  {out_pt} already exists with {n} sequences — nothing to do.")
+                return
+            else:
+                print(f"⚠️  {out_pt} exists but is incompatible — rebuilding …")
+        except Exception as e:
+            print(f"⚠️  cannot load existing bank ({e}) — rebuilding …")
 
+    # fresh build
+    build_bank(src_dir, out_pt, feature_cols, seq_len)
+    
 # -----------------------------------------------------------------
 def main():
     root = Path(__file__).resolve().parents[2]      # repo root
