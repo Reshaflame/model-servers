@@ -41,7 +41,12 @@ def run_pipeline() -> None:
     build_pos_bank(chunk_dir, BANK_PT_POS,
                    feature_cols=list(numeric_cols), seq_len=1)
     if not os.path.exists(BANK_PT_NEG):
-        build_negative_bank()                     # one-off – very fast
+        build_negative_bank(
+        src_dir      = CHUNKS_LABELED_PATH,
+        out_pt       = BANK_PT_NEG,
+        feature_cols = list(numeric_cols),
+        seq_len      = 1
+    )                     # one-off – very fast
 
     # ---------- 2. dataset & loaders -----------------------------
     full_ds = FastBalancedDS(
