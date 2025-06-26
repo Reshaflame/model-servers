@@ -8,7 +8,7 @@ Usage (one-off):
 or   python -m src.utils.build_anomaly_bank --seq 1  --src custom_dir --out custom_bank.pt
 """
 from __future__ import annotations
-import os, argparse, glob, numpy as np, pandas as pd, torch
+import os, argparse, numpy as np, pandas as pd, torch
 from pathlib import Path
 
 try:                                   
@@ -83,7 +83,7 @@ def build_if_needed(
 
     # fresh build
     build_bank(src_dir, out_pt, feature_cols, seq_len)
-    
+
 # -----------------------------------------------------------------
 def main():
     root = Path(__file__).resolve().parents[2]      # repo root

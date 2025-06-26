@@ -1,37 +1,45 @@
-# ─── src/utils/build_negative_bank.py ────────────────────────────
+# ─── src/utils/build_negative_bank.py ──────────────────────────────
 """
-Collects only *negative* sequences into a single .pt file so the
-FastBalancedDS can draw “extra” negatives without touching the disk.
+Creates / refreshes a bank of **negative** sequences so FastBalancedDS
+can draw extra negatives straight from memory.
 
-Usage (one-off):
-    python -m src.utils.build_negative_bank        # default paths
-or  python -m src.utils.build_negative_bank --seq 1 --src custom_dir --out custom_bank.pt
+One-off usage:
+    python -m src.utils.build_negative_bank
+or  python -m src.utils.build_negative_bank --seq 1 --src <dir> --out <file>
 """
 from __future__ import annotations
-import argparse
+import os, argparse
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 import torch
 
-try:                                    # when run as  python -m src.utils.build_negative_bank
+# ------------------------------------------------------------------ #
+#  Constants                                                         #
+# ------------------------------------------------------------------ #
+try:                                 # when executed as module
     from .constants import CHUNKS_LABELED_PATH
-except ImportError:                     # when imported as  from utils.build_negative_bank import …
+except ImportError:                  # when imported from elsewhere
     from utils.constants import CHUNKS_LABELED_PATH
 
-# -----------------------------------------------------------------
-def build_bank(src_dir: str, out_pt: str, seq_len: int = 1,
+# ------------------------------------------------------------------ #
+#  Core builder                                                      #
+# ------------------------------------------------------------------ #
+def build_bank(src_dir: str,
+               out_pt: str,
+               seq_len: int = 1,
                feature_cols: list[str] | None = None) -> None:
+    """Read *all* CSVs in `src_dir`, keep only negatives, save a .pt."""
     src_dir = Path(src_dir)
     files   = sorted(src_dir.glob("*.csv"))
     if not files:
         raise RuntimeError(f"No CSV files found in {src_dir}")
 
-    # --- decide which numeric columns to use (once) ---------------
+    # Determine numeric feature columns once
     if feature_cols is None:
-        sample_df   = pd.read_csv(files[0])
-        feature_cols = [c for c in sample_df.select_dtypes("number").columns
+        sample = pd.read_csv(files[0])
+        feature_cols = [c for c in sample.select_dtypes("number").columns
                         if c != "label"]
 
     xs = []
@@ -48,38 +56,63 @@ def build_bank(src_dir: str, out_pt: str, seq_len: int = 1,
     if not xs:
         raise RuntimeError("No negative sequences found — bank would be empty.")
 
-    X = torch.tensor(np.asarray(xs))        # (N, seq, F)
+    X = torch.tensor(np.asarray(xs))          # (N, seq_len, F)
+    os.makedirs(Path(out_pt).parent, exist_ok=True)
     torch.save({"X": X}, out_pt)
     print(f"✅  negative bank built: {X.shape[0]} sequences → {out_pt}")
 
-# -----------------------------------------------------------------
-def main():
-    root = Path(__file__).resolve().parents[2]      # repo root
+# ------------------------------------------------------------------ #
+#  Helper: build only when required                                  #
+# ------------------------------------------------------------------ #
+def build_if_needed(src_dir: str,
+                    out_pt: str,
+                    feature_cols: list[str],
+                    seq_len: int = 1) -> None:
+    """
+    • If `out_pt` exists *and* tensor shape matches (`seq_len`, `|F|`)
+      the function exits silently.  
+    • Otherwise the bank is rebuilt via `build_bank`.
+    """
+    if os.path.exists(out_pt):
+        try:
+            bank = torch.load(out_pt, map_location="cpu")
+            ok = (
+                isinstance(bank, dict)
+                and "X" in bank
+                and bank["X"].ndim == 3
+                and bank["X"].shape[1] == seq_len
+                and bank["X"].shape[2] == len(feature_cols)
+            )
+            if ok:
+                n = bank["X"].shape[0]
+                print(f"ℹ️  {out_pt} already exists with {n} sequences — nothing to do.")
+                return
+            else:
+                print(f"⚠️  {out_pt} exists but is incompatible — rebuilding …")
+        except Exception as e:
+            print(f"⚠️  cannot load existing bank ({e}) — rebuilding …")
+
+    build_bank(src_dir, out_pt, seq_len, feature_cols)
+
+# ------------------------------------------------------------------ #
+#  CLI entry-point                                                   #
+# ------------------------------------------------------------------ #
+def main() -> None:
+    root = Path(__file__).resolve().parents[2]      # project root
     default_src = root / CHUNKS_LABELED_PATH
     default_out = root / "data" / "negative_bank.pt"
 
     ap = argparse.ArgumentParser()
     ap.add_argument("--src", default=str(default_src),
-                    help="folder with labeled chunk CSVs")
+                    help="folder with labelled chunk CSVs")
     ap.add_argument("--out", default=str(default_out),
                     help="output .pt file")
     ap.add_argument("--seq", type=int, default=1,
-                    help="sequence length (1 for GRU, 10 for LSTM, etc.)")
+                    help="sequence length (1 for GRU, 10 for LSTM …)")
     args = ap.parse_args()
 
-    out_pt = Path(args.out)
-    if out_pt.exists():
-        try:
-            bank = torch.load(out_pt, map_location="cpu")
-            if "X" in bank and bank["X"].numel() > 0:
-                print(f"ℹ️  {out_pt} already exists with "
-                      f"{bank['X'].shape[0]} sequences — nothing to do.")
-                return
-        except Exception:
-            print("⚠️  existing file unreadable — rebuilding …")
+    build_bank(args.src, args.out, seq_len=args.seq)
 
-    build_bank(args.src, out_pt, seq_len=args.seq)
-
-# -----------------------------------------------------------------
-if __name__ == "__main__":                # CLI convenience
-    build_bank()
+# ------------------------------------------------------------------ #
+if __name__ == "__main__":
+    main()
