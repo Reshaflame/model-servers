@@ -8,7 +8,7 @@ Usage (one-off):
 or  python -m src.utils.build_negative_bank --seq 1 --src custom_dir --out custom_bank.pt
 """
 from __future__ import annotations
-import argparse, glob, os
+import argparse
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +19,7 @@ try:                                    # when run as  python -m src.utils.build
     from .constants import CHUNKS_LABELED_PATH
 except ImportError:                     # when imported as  from utils.build_negative_bank import …
     from utils.constants import CHUNKS_LABELED_PATH
-    
+
 # -----------------------------------------------------------------
 def build_bank(src_dir: str, out_pt: str, seq_len: int = 1,
                feature_cols: list[str] | None = None) -> None:
@@ -81,5 +81,5 @@ def main():
     build_bank(args.src, out_pt, seq_len=args.seq)
 
 # -----------------------------------------------------------------
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__":                # CLI convenience
+    build_bank()
