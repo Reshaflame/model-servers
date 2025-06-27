@@ -82,7 +82,10 @@ def build_if_needed(
             print(f"⚠️  cannot load existing bank ({e}) — rebuilding …")
 
     # fresh build
-    build_bank(src_dir, out_pt, feature_cols, seq_len)
+    build_bank(src_dir,
+           out_pt,
+           seq_len=seq_len,
+           feature_cols=feature_cols)
 
 # -----------------------------------------------------------------
 def main():
