@@ -3,6 +3,7 @@
 # ---------------------------------------------------------------
 from glob import glob
 import os, random, torch, pandas as pd
+import numpy as np, logging, json
 from torch.utils.data import DataLoader
 
 from utils.fast_balanced_dataset import FastBalancedDS                # ⬅ RAM-banks dataset
@@ -152,7 +153,35 @@ def run_pipeline() -> None:
         lr           = 1e-3,
     )
     evaluate_and_export(hybrid, [(val_X, val_y)], "gru_hybrid", device)
+    LOGGER = logging.getLogger("PIPELINE")
 
+    pred_dir  = "/app/models/preds/gru_hybrid_batches"
+    first     = sorted(glob.glob(os.path.join(pred_dir, "*")))[0]
+
+    try:                                     # works for both .npy and .pt
+        if first.endswith(".npy"):
+            batch = np.load(first, allow_pickle=True).item()
+            y_true  = batch["y"].astype(int).squeeze()
+            y_prob  = batch["y_hat"].squeeze()
+        else:                                # .pt
+            batch = torch.load(first, map_location="cpu")
+            y_true = batch["y"].int().view(-1).numpy()
+            y_prob = torch.sigmoid(batch["logits"]).view(-1).numpy()
+
+        pos = int(y_true.sum())
+        neg = len(y_true) - pos
+        auc = float( (np.argsort(y_prob)[-pos:] == np.where(y_true==1)[0]).mean() )
+
+        LOGGER.info(f"[peek] first-batch size={len(y_true)}  "
+                    f"pos={pos}  neg={neg}  ‖  rough-AUC≈{auc:0.3f}")
+
+        # optional: log first 10 triplets for sanity-check
+        LOGGER.debug("[peek] y / ŷ  : " +
+                    json.dumps([{"y":int(y), "p":float(p)} 
+                                for y,p in zip(y_true[:10], y_prob[:10])]))
+
+    except Exception as e:
+        LOGGER.warning(f"[peek] couldn’t read {first}: {e}")
 # ------------------------------------------------------------------
 if __name__ == "__main__":
     run_pipeline()
