@@ -94,7 +94,10 @@ def build_if_needed(src_dir: str,
             print(f"⚠️  meta file unreadable or corrupt ({e}) — rebuilding …")
 
     # otherwise: rebuild and write meta
-    build_bank(src_dir, out_pt, seq_len, feature_cols)
+    build_bank(src_dir,
+           out_pt,
+           seq_len=seq_len,
+           feature_cols=feature_cols)
     try:
         bank = torch.load(out_pt, map_location="cpu")
         shape = bank["X"].shape  # (N, seq, F)
