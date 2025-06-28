@@ -1,6 +1,7 @@
 # ─── src/models/gru_hybrid.py ───────────────────────────────────────
 import os, logging, torch
 import torch.nn as nn
+from torch.nn.functional import binary_cross_entropy_with_logits as bce
 from utils.evaluator import quick_f1
 from utils.logging_helpers import enable_full_debug
 
@@ -52,6 +53,11 @@ class GRUAnomalyDetector(nn.Module):
         self.gru = nn.GRU(input_size, hidden_size, num_layers,
                           batch_first=True,
                           dropout=0.2 if num_layers > 1 else 0.)
+        self.post = nn.Sequential(             # ➊ tiny two-layer “booster”
+            nn.LayerNorm(hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size)
+        )
         self.fc  = nn.Linear(hidden_size, output_size)
         self.dropout = nn.Dropout(0.2)
 
@@ -59,7 +65,12 @@ class GRUAnomalyDetector(nn.Module):
         if x.dim() == 2:            # [B, F]  →  [B, 1, F]
             x = x.unsqueeze(1)
         h, _ = self.gru(x.contiguous())
-        h_last = h[:, -1]           # (B, hidden)
+        h_last = h[:, -1]                      # (B, hidden)
+
+        # ➋ residual + layer-norm trick
+        h_boost = self.post(h_last)
+        h_last  = h_last + h_boost
+
         logits = self.fc(self.dropout(h_last))
         return logits, h_last       # tuple, like before
 
@@ -81,6 +92,12 @@ def _load_ckpt(model, optim, tag):
         optim.load_state_dict(state["optim"])
     LOGGER.info(f"🔁  Resumed from checkpoint: {path}")
     return state["epoch"]
+
+def focal_loss(logits, targets, alpha=1.0, gamma=2.0):
+    bce_raw = bce(logits, targets, reduction='none')
+    p_t     = torch.exp(-bce_raw)
+    loss    = alpha * (1-p_t) ** gamma * bce_raw
+    return loss.mean()
 
 # ------------------------------------------------------------------ #
 # 2.  Hybrid head                                                    #
@@ -124,6 +141,8 @@ def _compute_pos_weight(label_array, device):
     n_neg = len(label_array) - n_pos
     return torch.tensor([n_neg / max(1, n_pos)], device=device)
 
+
+
 def train_gru(config: dict,
               loaders,
               input_size: int,
@@ -155,7 +174,7 @@ def train_gru(config: dict,
             n_pos += int((y == 1).sum())
             n_neg += int((y == 0).sum())
         pos_weight = torch.tensor([n_neg / max(1, n_pos)], device=dev)
-    crit = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    crit = focal_loss
     # ---------------------------------------------------------------
 
     start_ep = _load_ckpt(model, optim, tag) if resume else 0
@@ -218,7 +237,7 @@ def train_hybrid(backbone_ckpt: str,
     model = GRUHybrid(backbone, hidden_size,
                       freeze_gru=True, freeze_bottleneck=False).to(dev)
     optim = torch.optim.Adam(model.head.parameters(), lr=lr)
-    crit  = nn.BCEWithLogitsLoss()
+    crit = focal_loss
 
     for ep in range(epochs):
         model.train()
