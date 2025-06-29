@@ -156,7 +156,7 @@ def run_pipeline() -> None:
     LOGGER = logging.getLogger("PIPELINE")
 
     pred_dir  = "/app/models/preds/gru_hybrid_batches"
-    first     = sorted(glob.glob(os.path.join(pred_dir, "*")))[0]
+    first     = sorted(glob(os.path.join(pred_dir, "*")))[0]
 
     try:                                     # works for both .npy and .pt
         if first.endswith(".npy"):
