@@ -49,8 +49,21 @@ def build_bank(src_dir: str,
         for i in negs:
             if i < seq_len - 1:
                 continue
-            seq = (df.iloc[i-seq_len+1:i+1][feature_cols]
-                     .values.astype("float32"))
+            # -------- Phase-2 robust conversion ---------------------------------
+            chunk = df.iloc[i-seq_len+1:i+1][feature_cols]
+
+            # add missing dummy columns
+            for col in feature_cols:
+                if col not in chunk.columns:
+                    chunk[col] = 0.0
+
+            # coerce strings → numeric → float32
+            seq = (chunk
+                    .apply(pd.to_numeric, errors="coerce")
+                    .fillna(0.0)
+                    .astype("float32")
+                    .values)
+            # --------------------------------------------------------------------
             xs.append(seq)
 
     if not xs:
