@@ -3,7 +3,7 @@ from torch.utils.data import Dataset
 
 class FastBalancedDS(Dataset):
     """
-    All positives & negatives are pre-materialised tensors ⟹ no CSV I/O
+    All positives & negatives are pre-materialised tensors → no CSV I/O
     """
 
     def __init__(self,
@@ -23,7 +23,8 @@ class FastBalancedDS(Dataset):
 
         # ── only needed for sample_negative() fallback -------------
         self.neg_files = glob.glob(os.path.join(chunk_dir, "*.csv"))
-        self.cols   = list(feature_cols)
+
+        self.cols   = list(feature_cols)    # ← 61 columns from expected_features.json
         self.seq    = seq_len
         self.ratio  = pos_ratio
         self._cache = {}
@@ -43,8 +44,23 @@ class FastBalancedDS(Dataset):
     # ---------- OPTIONAL: fallback CSV sampler -------------------- #
     def _load_csv(self, path):
         if path not in self._cache:
-            self._cache[path] = pd.read_csv(path, usecols=self.cols + ["label"])
-            if len(self._cache) > 10:             # keep ≤10 dfs
+            df = pd.read_csv(path, usecols=self.cols + ["label"])
+
+            # ── PATCH ➊: add missing dummies & coerce numeric ──────────
+            for col in self.cols:
+                if col not in df.columns:
+                    df[col] = 0.0                      # add all-zero dummy
+
+            df[self.cols] = (
+                df[self.cols]
+                  .apply(pd.to_numeric, errors="coerce")
+                  .fillna(0.0)
+                  .astype("float32")
+            )
+            # ───────────────────────────────────────────────────────────
+
+            self._cache[path] = df
+            if len(self._cache) > 10:                 # keep ≤10 dfs
                 self._cache.pop(next(iter(self._cache)))
         return self._cache[path]
 
@@ -54,9 +70,13 @@ class FastBalancedDS(Dataset):
             f   = random.choice(self.neg_files)
             df  = self._load_csv(f)
             idx = random.randrange(self.seq, len(df))
-            if df["label"].iloc[idx] == 1:        # skip positives
+            if df["label"].iloc[idx] == 1:            # skip positives
                 continue
-            seq = df[self.cols].iloc[idx-self.seq:idx].values.astype("float32")
-            x   = torch.tensor(seq)
+
+            # ── PATCH ➋: guaranteed 61-features seq tensor ────────────
+            seq = df[self.cols].iloc[idx-self.seq:idx].values
+            x   = torch.tensor(seq, dtype=torch.float32)
+            # ───────────────────────────────────────────────────────────
+
             y   = torch.tensor([0.], dtype=torch.float32)
             return x, y

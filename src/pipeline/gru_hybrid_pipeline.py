@@ -30,34 +30,30 @@ FINAL_HYB_PT   = Path("/app/models/gru_hybrid.pth")         # hybrid (optional)
 def run_pipeline() -> None:
     # ---------- 0. metadata ---------------------------------------
     chunk_dir  = CHUNKS_LABELED_PATH
-    first_csv  = glob(os.path.join(chunk_dir, "*.csv"))[0]
 
-    numeric_cols = (
-        pd.read_csv(first_csv)
-          .drop(columns=["label"])
-          .select_dtypes("number")
-          .columns
-    )
-    input_size = len(numeric_cols)
+    # ---- SINGLE source-of-truth for the schema -----------------
+    with open("data/meta/expected_features.json") as f:
+        FEATURE_LIST = json.load(f)          # 61 columns – Phase-2
+    input_size = len(FEATURE_LIST)           # = 61
     device     = "cuda" if torch.cuda.is_available() else "cpu"
 
     # ---------- 1. build banks (if missing) -----------------------
     build_pos_bank(chunk_dir, BANK_PT_POS,
-                   feature_cols=list(numeric_cols), seq_len=1)
+                   feature_cols=FEATURE_LIST, seq_len=1)
     if not os.path.exists(BANK_PT_NEG):
         build_negative_bank(
-        src_dir      = CHUNKS_LABELED_PATH,
-        out_pt       = BANK_PT_NEG,
-        feature_cols = list(numeric_cols),
-        seq_len      = 1
-    )                     # one-off – very fast
+            src_dir      = CHUNKS_LABELED_PATH,
+            out_pt       = BANK_PT_NEG,
+            feature_cols = FEATURE_LIST,
+            seq_len      = 1
+        )                     # one-off – very fast
 
     # ---------- 2. dataset & loaders -----------------------------
     full_ds = FastBalancedDS(
         chunk_dir   = chunk_dir,
         bank_pt     = BANK_PT_POS,
         neg_bank_pt = BANK_PT_NEG,
-        feature_cols= list(numeric_cols),
+        feature_cols= FEATURE_LIST,
         seq_len     = 1,
         pos_ratio   = POS_RATIO,
     )
