@@ -105,7 +105,7 @@ def run_pipeline() -> None:
         backbone.eval()
 
         # fresh metrics on *current* val-tensor
-        mets = quick_f1(backbone, val_once, device="cpu", thr=0.25)
+        mets = quick_f1(backbone, val_once, device="cpu")
         print(f"✅  F1={mets['F1']:.4f} ‖ P={mets['Precision']:.3f} R={mets['Recall']:.3f}")
 
         # regenerate preds so they match the new val set
