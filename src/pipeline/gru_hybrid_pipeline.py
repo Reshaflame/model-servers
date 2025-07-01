@@ -5,6 +5,7 @@ from glob import glob
 import os, random, torch, pandas as pd
 import numpy as np, logging, json
 from torch.utils.data import DataLoader
+from pathlib import Path
 
 from utils.fast_balanced_dataset import FastBalancedDS                # ⬅ RAM-banks dataset
 from utils.build_anomaly_bank    import build_if_needed as build_pos_bank
@@ -12,9 +13,9 @@ from utils.build_negative_bank   import build_if_needed as build_negative_bank
 from utils.dl_helpers            import stack_batch, to_device
 from utils.constants             import CHUNKS_LABELED_PATH
 from utils.tuning                import manual_gru_search
-from utils.evaluator             import evaluate_and_export
+from utils.evaluator             import quick_f1, evaluate_and_export
 from utils.model_exporter        import export_model
-from models.gru_hybrid           import train_gru, train_hybrid
+from models.gru_hybrid           import train_gru, train_hybrid, GRUAnomalyDetector
 
 # ------------------------------------------------------------------ #
 BANK_PT_POS = "/workspace/model-servers/data/anomaly_bank.pt"
@@ -22,6 +23,8 @@ BANK_PT_NEG = "/workspace/model-servers/data/negative_bank.pt"
 POS_RATIO   = 0.30                 # ≈ 30 % positives per mini-batch
 BATCH_SIZE  = 64
 NUM_WORKERS = 4                    # ← adjust to your CPU
+FINAL_MODEL_PT = Path("/app/models/gru_trained_model.pth")  # backbone
+FINAL_HYB_PT   = Path("/app/models/gru_hybrid.pth")         # hybrid (optional)
 
 # ------------------------------------------------------------------ #
 def run_pipeline() -> None:
@@ -88,6 +91,49 @@ def run_pipeline() -> None:
     def val_once():
         """One-shot generator expected by train_gru()."""
         yield val_X, val_y
+
+     # ──────────────────────────────────────────────────────────────
+    #  ## smart-resume guard – insert HERE #########################
+    # ──────────────────────────────────────────────────────────────
+    if FINAL_MODEL_PT.exists():
+        print("ℹ️  Found existing /app/models/gru_trained_model.pth → skipping retraining")
+
+        # create a dummy backbone with **default** architecture.
+        # (adjust hidden_size / num_layers if you usually train other sizes)
+        backbone = GRUAnomalyDetector(input_size, hidden_size=64, num_layers=1)
+        backbone.load_state_dict(torch.load(FINAL_MODEL_PT, map_location="cpu"))
+        backbone.eval()
+
+        # fresh metrics on *current* val-tensor
+        mets = quick_f1(backbone, val_once, device="cpu", thr=0.25)
+        print(f"✅  F1={mets['F1']:.4f} ‖ P={mets['Precision']:.3f} R={mets['Recall']:.3f}")
+
+        # regenerate preds so they match the new val set
+        evaluate_and_export(backbone, [(val_X, val_y)], "gru_recheck", "cpu")
+
+        # optional: also skip hybrid fine-tune if it already exists
+        if FINAL_HYB_PT.exists():
+            print("ℹ️  gru_hybrid.pth already present – pipeline finished.")
+            return
+
+        # otherwise run only the hybrid stage with the existing backbone
+        print("🚀  Existing backbone → running HYBRID stage only …")
+        best_cfg = {"hidden_size": 64, "num_layers": 1}  # same as dummy above
+        hybrid = train_hybrid(
+            str(FINAL_MODEL_PT),
+            loaders      = (lambda: (), val_once),  # no further training of backbone
+            input_size   = input_size,
+            hidden_size  = best_cfg["hidden_size"],
+            num_layers   = best_cfg["num_layers"],
+            epochs       = 3,
+            lr           = 1e-3,
+        )
+        evaluate_and_export(hybrid, [(val_X, val_y)], "gru_hybrid_recheck", "cpu")
+        return          # ← finished, no grid-search / training
+    # ──────────────────────────────────────────────────────────────
+    #  ## end smart-resume guard ###################################
+    # ──────────────────────────────────────────────────────────────
+
 
     # ---------- 3. tiny dataset stats ----------------------------
     with torch.no_grad():
@@ -156,7 +202,8 @@ def run_pipeline() -> None:
     LOGGER = logging.getLogger("PIPELINE")
 
     pred_dir  = "/app/models/preds/gru_hybrid_batches"
-    first     = sorted(glob(os.path.join(pred_dir, "*")))[0]
+    cands = sorted(glob(os.path.join(pred_dir, "*")))
+    first = next(f for f in cands if f.endswith((".pt", ".npy")))
 
     try:                                     # works for both .npy and .pt
         if first.endswith(".npy"):
