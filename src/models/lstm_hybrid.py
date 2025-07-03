@@ -1,17 +1,19 @@
 # ─── src/models/lstm_hybrid.py ──────────────────────────────────────
-import os, logging, torch
+import os, logging, torch, random, json
 import torch.nn as nn
-from utils.evaluator  import quick_f1
+from torch.nn.functional import binary_cross_entropy_with_logits as _bce
+from utils.evaluator       import quick_f1
 from utils.logging_helpers import enable_full_debug
 
-LOG_DIR, CKPT_DIR = "/workspace/logs", "/workspace/checkpoints"
+LOG_DIR  = os.getenv("LOG_DIR",  "/workspace/logs")
+CKPT_DIR = os.getenv("CKPT_DIR", "/workspace/checkpoints")
 os.makedirs(LOG_DIR,  exist_ok=True)
 os.makedirs(CKPT_DIR, exist_ok=True)
 
 # ------------------------------------------------------------------ #
 # 0.  Logging helpers                                                #
 # ------------------------------------------------------------------ #
-def _ckpt(tag):  return os.path.join(CKPT_DIR, f"{tag}.pt")
+def _ckpt(tag): return os.path.join(CKPT_DIR, f"{tag}.pt")
 
 def _logger(name="LSTM"):
     L = logging.getLogger(name)
@@ -28,7 +30,7 @@ LOGGER = _logger()
 enable_full_debug(LOGGER)
 
 # ------------------------------------------------------------------ #
-# 1.  Backbone: LSTM ➜ RNN ➜ FC                                      #
+# 1.  Backbone: LSTM ➜ RNN ➜ booster ➜ FC                           #
 # ------------------------------------------------------------------ #
 class LSTMRNNBackbone(nn.Module):
     def __init__(self, input_size: int,
@@ -36,22 +38,35 @@ class LSTMRNNBackbone(nn.Module):
                  num_layers: int = 1,
                  out: int = 1):
         super().__init__()
+        self.hidden_size = hidden_size
         self.lstm = nn.LSTM(input_size, hidden_size, num_layers,
                             batch_first=True,
                             dropout=0.2 if num_layers > 1 else 0.)
         self.rnn  = nn.RNN (hidden_size, hidden_size, num_layers,
                             batch_first=True,
                             dropout=0.2 if num_layers > 1 else 0.)
-        self.fc   = nn.Linear(hidden_size, out)
+
+        # ➊ tiny two-layer “booster” (+ residual)
+        self.post = nn.Sequential(
+            nn.LayerNorm(hidden_size),
+            nn.ReLU(),
+            nn.Linear(hidden_size, hidden_size),
+        )
+        self.dropout = nn.Dropout(0.2)
+        self.fc      = nn.Linear(hidden_size, out)
 
     def forward(self, x):
-        if x.dim() == 2:
-            x = x.unsqueeze(1)              # [B, F] → [B, 1, F]
+        if x.dim() == 2:                              # [B, F] → [B, 1, F]
+            x = x.unsqueeze(1)
         lstm_out, _ = self.lstm(x)
         rnn_out,  _ = self.rnn(lstm_out)
-        h_last = rnn_out[:, -1]             # (B, hidden)
-        logits = self.fc(h_last)            # (B, 1)
-        return logits, h_last               # tuple (unchanged)
+        h_last = rnn_out[:, -1]                       # (B, H)
+
+        # ➋ residual boost
+        h_last = h_last + self.post(h_last)
+
+        logits = self.fc(self.dropout(h_last))        # (B, 1)
+        return logits, h_last
 
 # ------------------------------------------------------------------ #
 # 2.  Hybrid head                                                    #
@@ -84,8 +99,13 @@ class LSTMHybrid(nn.Module):
         return self.head(z8)
 
 # ------------------------------------------------------------------ #
-# 3.  Training helpers                                               #
+# 3.  Loss helpers (focal)                                           #
 # ------------------------------------------------------------------ #
+def focal_loss(logits, targets, alpha: float = 1.0, gamma: float = 2.0):
+    raw = _bce(logits, targets, reduction="none")
+    p_t = torch.exp(-raw)
+    return (alpha * (1 - p_t) ** gamma * raw).mean()
+
 def _pos_weight_from_labels(label_array, device):
     n_pos = int(label_array.sum())
     n_neg = len(label_array) - n_pos
@@ -101,6 +121,7 @@ def train_lstm(cfg: dict,
                resume: bool = True,
                eval_every: bool = True,
                label_array=None):
+
     train_loader, val_loader_fn = loaders
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -109,17 +130,18 @@ def train_lstm(cfg: dict,
                             num_layers=cfg["num_layers"]).to(dev)
     optim = torch.optim.Adam(model.parameters(), lr=cfg["lr"])
 
-    # pos_weight – fast path if we have the global labels array
+    # pos-weight
     if label_array is not None:
         pos_weight = _pos_weight_from_labels(label_array, dev)
-    else:                                 # fallback (may be slow)
-        pos = neg = 0
+    else:
+        p = n = 0
         for _, y in train_loader():
-            pos += (y == 1).sum().item();  neg += (y == 0).sum().item()
-        pos_weight = torch.tensor([neg / max(1, pos)], device=dev)
+            p += (y == 1).sum().item(); n += (y == 0).sum().item()
+        pos_weight = torch.tensor([n / max(1, p)], device=dev)
 
-    crit = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    crit = focal_loss                                # ← swapped in
 
+    # resume
     start = 0
     if resume and os.path.exists(_ckpt(tag)):
         state = torch.load(_ckpt(tag), map_location="cpu")
@@ -131,11 +153,9 @@ def train_lstm(cfg: dict,
     best_f1, patience = 0., 0
     for ep in range(start, cfg["epochs"]):
         model.train()
-        for batch_id, (xb, yb) in enumerate(train_loader()):
+        for bid, (xb, yb) in enumerate(train_loader()):
             xb = xb.to(dev).float()
-            yb = yb.to(dev).float()
-            if yb.dim() == 1:
-                yb = yb.unsqueeze(1)
+            yb = yb.to(dev).float().unsqueeze(1) if yb.dim() == 1 else yb
 
             optim.zero_grad()
             logits, _ = model(xb)
@@ -143,12 +163,11 @@ def train_lstm(cfg: dict,
             loss.backward()
             optim.step()
 
-            if batch_id % 200 == 0:
+            if bid % 200 == 0:
                 with torch.no_grad():
-                    mean_sig = torch.sigmoid(logits).mean().item()
-                LOGGER.debug(f"batch {batch_id:>5}  "
-                             f"mean_sigmoid={mean_sig:.6f}  "
-                             f"loss={loss.item():.6f}")
+                    LOGGER.debug(f"batch {bid:>5} "
+                                 f"mean_sig={torch.sigmoid(logits).mean():.6f} "
+                                 f"loss={loss.item():.6f}")
 
         LOGGER.info(f"[{tag}] ep {ep+1}/{cfg['epochs']} loss={loss.item():.5f}")
         torch.save({"model": model.state_dict(),
@@ -159,8 +178,7 @@ def train_lstm(cfg: dict,
             mets = quick_f1(model, val_loader_fn, dev)
             LOGGER.info(f"   F1={mets['F1']:.6f}  "
                         f"P={mets['Precision']:.6f}  R={mets['Recall']:.6f}")
-            if mets["F1"] > best_f1:
-                best_f1, patience = mets["F1"], 0
+            if mets["F1"] > best_f1: best_f1, patience = mets["F1"], 0
             else:
                 patience += 1
                 if patience >= cfg["early_stop_patience"]:
@@ -169,7 +187,7 @@ def train_lstm(cfg: dict,
     return best_f1, model
 
 # ------------------------------------------------------------------ #
-# 5.  Stage-2 Hybrid fine-tune                                       #
+# 5.  Stage-2 hybrid fine-tune                                       #
 # ------------------------------------------------------------------ #
 def train_hybrid(backbone_ckpt: str,
                  loaders,
@@ -179,6 +197,7 @@ def train_hybrid(backbone_ckpt: str,
                  tag: str = "lstm_hybrid",
                  epochs: int = 3,
                  lr: float = 1e-3):
+
     train_loader, _ = loaders
     dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -190,16 +209,13 @@ def train_hybrid(backbone_ckpt: str,
                        freeze_backbone=True,
                        freeze_bottleneck=False).to(dev)
     optim = torch.optim.Adam(model.head.parameters(), lr=lr)
-    crit  = nn.BCEWithLogitsLoss()
+    crit  = focal_loss                                  # ← swapped
 
     for ep in range(epochs):
         model.train()
         for xb, yb in train_loader():
             xb = xb.to(dev).float()
-            yb = yb.to(dev).float()
-            if yb.dim() == 1:
-                yb = yb.unsqueeze(1)
-
+            yb = yb.to(dev).float().unsqueeze(1) if yb.dim() == 1 else yb
             optim.zero_grad()
             loss = crit(model(xb), yb)
             loss.backward()

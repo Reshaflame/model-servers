@@ -1,39 +1,41 @@
 # ---------------------------------------------------------------
 #  LSTM+RNN + MLP hybrid training pipeline (streaming dataset)
 # ---------------------------------------------------------------
-from glob import glob
-import os, pandas as pd, torch
+import os, json, torch, pandas as pd
+from glob import glob as _glob
+from pathlib import Path
 from utils.SequenceChunkedDataset import SequenceChunkedDataset
 from utils.constants import CHUNKS_LABELED_PATH
-from utils.tuning   import manual_gru_search          # reuse same helper
-from utils.evaluator import evaluate_and_export
+from utils.tuning      import manual_gru_search          # reuse helper
+from utils.evaluator   import evaluate_and_export, quick_f1
 from utils.model_exporter import export_model
-from models.lstm_hybrid  import train_lstm, train_hybrid
+from models.lstm_hybrid   import train_lstm, train_hybrid, LSTMRNNBackbone
+
+# ---------- constants ------------------------------------------
+BACKBONE_PT = Path("/app/models/lstm_rnn_trained_model.pth")
+HYBRID_PT   = Path("/app/models/lstm_hybrid.pth")
 
 def run_pipeline() -> None:
-    chunk_dir = CHUNKS_LABELED_PATH
-    first_csv = glob(os.path.join(chunk_dir, "*.csv"))[0]
-    numeric   = (
-        pd.read_csv(first_csv)
-          .drop(columns=["label"])
-          .select_dtypes("number")
-          .columns
-    )
-    input_size = len(numeric)
+    # ---------- 0. schema & meta ---------------------------------
+    with open("data/meta/expected_features.json") as f:
+        FEATURE_LIST = json.load(f)          # 61 columns
+    input_size = len(FEATURE_LIST)
     device     = "cuda" if torch.cuda.is_available() else "cpu"
 
-    # ---------- dataset -----------------------------------------
+    chunk_dir = CHUNKS_LABELED_PATH
+
+    # ---------- 1. dataset ---------------------------------------
     dataset = SequenceChunkedDataset(
         chunk_dir,
-        label_column="label",
-        batch_size=64,
-        shuffle_files=True,
-        binary_labels=True,
-        sequence_length=10,   # 10-step sequences
-        device=device,
-        split_ratio=0.9
+        label_column    = "label",
+        feature_columns = FEATURE_LIST,      # ← NEW
+        batch_size      = 64,
+        shuffle_files   = True,
+        binary_labels   = True,
+        sequence_length = 10,
+        device          = device,
+        split_ratio     = 0.9
     )
-
     train_iter = dataset.train_loader
     val_once   = dataset.val_loader
     full_iter  = dataset.full_loader
@@ -43,7 +45,35 @@ def run_pipeline() -> None:
     print(f"🧮 train positives ≈ {pos_tr}")
     print(f"🧮   val positives ≈ {pos_val}")
 
-    # ---------- stage-1 : grid search ---------------------------
+    # ---------- 2. smart-resume guard ----------------------------
+    if BACKBONE_PT.exists():
+        print("ℹ️  Found existing backbone → skipping retrain")
+        backbone = LSTMRNNBackbone(input_size).to("cpu")
+        backbone.load_state_dict(torch.load(BACKBONE_PT, map_location="cpu"))
+        mets = quick_f1(backbone, val_once, device="cpu")
+        print(f"✅  F1={mets['F1']:.4f} ‖ P={mets['Precision']:.3f} R={mets['Recall']:.3f}")
+
+        if HYBRID_PT.exists():
+            print("ℹ️  Hybrid already present → pipeline finished.")
+            return
+
+        print("🚀  Existing backbone → running hybrid stage only …")
+        hybrid = train_hybrid(
+            str(BACKBONE_PT),
+            loaders      = (lambda: (), val_once),
+            input_size   = input_size,
+            hidden_size  = 64,
+            num_layers   = 1,
+            epochs       = 3,
+            lr           = 1e-3,
+        )
+        evaluate_and_export(
+            hybrid, full_iter(), model_name="lstm_hybrid_recheck", device="cpu"
+        )
+        return
+    # -------------------------------------------------------------
+
+    # ---------- 3. grid search -----------------------------------
     grid = [
         {"lr":1e-3 , "hidden_size":64 , "num_layers":1, "epochs":6, "early_stop_patience":2},
         {"lr":5e-4 , "hidden_size":128, "num_layers":1, "epochs":6, "early_stop_patience":2},
@@ -64,7 +94,7 @@ def run_pipeline() -> None:
     best = manual_gru_search(_train, grid)
     print("🏅 Best LSTM config:", best)
 
-    # ---------- stage-1b : backbone train -----------------------
+    # ---------- 4. final backbone train --------------------------
     tag = f"lstm_h{best['hidden_size']}_l{best['num_layers']}"
     best_f1, lstm_backbone = train_lstm(
         best,
@@ -76,16 +106,16 @@ def run_pipeline() -> None:
     )
     print(f"👍 Final backbone F1 = {best_f1:.4f}")
 
-    export_model(lstm_backbone, "/app/models/lstm_rnn_trained_model.pth")
+    export_model(lstm_backbone, str(BACKBONE_PT))
     evaluate_and_export(
         lstm_backbone, full_iter(), model_name="lstm",
         device=device, export_ground_truth=True
     )
 
-    # ---------- stage-2 : hybrid fine-tune ----------------------
+    # ---------- 5. hybrid fine-tune ------------------------------
     print("\n🚀  Starting hybrid fine-tune…")
     hybrid = train_hybrid(
-        "/app/models/lstm_rnn_trained_model.pth",
+        str(BACKBONE_PT),
         loaders=(train_iter, val_once),
         input_size=input_size,
         hidden_size=best["hidden_size"],
