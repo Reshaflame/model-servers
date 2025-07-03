@@ -10,6 +10,12 @@ CKPT_DIR = os.getenv("CKPT_DIR", "/workspace/checkpoints")
 os.makedirs(LOG_DIR,  exist_ok=True)
 os.makedirs(CKPT_DIR, exist_ok=True)
 
+def focal_loss(logits, targets, alpha: float = 1.0, gamma: float = 2.0):
+    targets = targets.to(logits.device)      # ← NEW
+    raw = _bce(logits, targets, reduction="none")
+    p_t = torch.exp(-raw)
+    return (alpha * (1 - p_t) ** gamma * raw).mean()
+
 # ------------------------------------------------------------------ #
 # 0.  Logging helpers                                                #
 # ------------------------------------------------------------------ #
@@ -159,7 +165,7 @@ def train_lstm(cfg: dict,
 
             optim.zero_grad()
             logits, _ = model(xb)
-            loss = crit(logits, yb)
+            loss = crit(logits, yb.to(dev)) 
             loss.backward()
             optim.step()
 
@@ -217,7 +223,7 @@ def train_hybrid(backbone_ckpt: str,
             xb = xb.to(dev).float()
             yb = yb.to(dev).float().unsqueeze(1) if yb.dim() == 1 else yb
             optim.zero_grad()
-            loss = crit(model(xb), yb)
+            loss = crit(model(xb), yb.to(dev))
             loss.backward()
             optim.step()
         LOGGER.info(f"[HYB] ep {ep+1}/{epochs} loss={loss.item():.5f}")
