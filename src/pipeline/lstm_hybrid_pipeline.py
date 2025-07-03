@@ -14,8 +14,11 @@ from utils.model_exporter import export_model
 from models.lstm_hybrid   import train_lstm, train_hybrid, LSTMRNNBackbone
 
 # -------- constants ---------------------------------------------
-BANK_PT_POS = "/workspace/model-servers/data/anomaly_bank.pt"
-BANK_PT_NEG = "/workspace/model-servers/data/negative_bank.pt"
+BANK_DIR     = "/workspace/model-servers/data/lstm_seq10"
+os.makedirs(BANK_DIR, exist_ok=True)
+
+BANK_PT_POS  = f"{BANK_DIR}/anomaly_bank.pt"
+BANK_PT_NEG  = f"{BANK_DIR}/negative_bank.pt"
 POS_RATIO   = 0.30          # 30 % positives per mini-batch
 BATCH_SIZE  = 64
 NUM_WORKERS = 4
