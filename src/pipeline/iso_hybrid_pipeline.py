@@ -1,135 +1,148 @@
-# src/pipeline/iso_hybrid_pipeline.py
-"""
-Isolation-Forest ➊ backbone ➋ bottleneck ➌ MLP-head fine-tune pipeline
----------------------------------------------------------------------
-* Backbone (sklearn) is trained once on a subset of labelled chunks.
-* A tiny PyTorch head is then fine-tuned on the full labelled stream.
-"""
+# ---------------------------------------------------------------
+# Isolation-Forest ➜ bottleneck ➜ MLP hybrid fine-tune pipeline
+# ---------------------------------------------------------------
+# ➊ Train / resume an Isolation-Forest backbone
+# ➋ Freeze backbone, fine-tune a tiny head with focal-loss
+# ➌ Evaluate on the full labelled stream (row-order irrelevant)
+# ---------------------------------------------------------------
 
-import json, logging, os, torch, numpy as np, pandas as pd
-from glob import glob
+import json, logging, os, torch, numpy as np
+from pathlib import Path
 
-from utils.constants import CHUNKS_LABELED_PATH
-from utils.SequenceChunkedDataset import SequenceChunkedDataset
-from models.iso_backbone import IsoBackbone
-from models.iso_hybrid   import IsoHybrid
+from utils.constants          import CHUNKS_LABELED_PATH
+from utils.fast_balanced_dataset import FastBalancedDS
+from utils.build_anomaly_bank import build_if_needed as build_pos_bank
+from utils.build_negative_bank import build_if_needed as build_neg_bank
 
-# ───────────────────────────── logging ──────────────────────────────
+from models.iso_backbone      import IsoBackbone
+from models.iso_hybrid        import IsoHybrid, focal_loss
+
+# ─────────── log / checkpoint dirs (env-override) ──────────────
+LOG_DIR  = os.getenv("LOG_DIR",  "/workspace/logs")
+CKPT_DIR = os.getenv("CKPT_DIR", "/workspace/checkpoints")
+os.makedirs(LOG_DIR,  exist_ok=True)
+os.makedirs(CKPT_DIR, exist_ok=True)
+
 logging.basicConfig(
     level=logging.INFO,
-    format="[IsoHybrid] %(asctime)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.FileHandler("/workspace/logs/iso_hybrid.log"),
-        logging.StreamHandler()
-    ]
+    format="[IsoHybrid] %(asctime)s │ %(levelname)s │ %(message)s",
+    handlers=[logging.FileHandler(os.path.join(LOG_DIR, "iso_hybrid.log")),
+              logging.StreamHandler()]
 )
 
-# ──────────────────────────── main logic ────────────────────────────
-def run_iso_hybrid_pipeline(preprocess: bool = False) -> None:
-    if preprocess:
-        logging.warning("🚧 Labeled data should already be pre-processed — skipping.")
+# ───────────── fixed constants (seq_len = 1) ────────────────────
+BANK_DIR   = "/workspace/model-servers/data/iso_seq1"
+os.makedirs(BANK_DIR, exist_ok=True)
+BANK_PT_POS = f"{BANK_DIR}/anomaly_bank.pt"
+BANK_PT_NEG = f"{BANK_DIR}/negative_bank.pt"
 
-    # ----------------------------------------------------------------
-    # 0.  Load canonical feature order from JSON
-    # ----------------------------------------------------------------
+POS_RATIO   = 0.30
+BATCH       = 64
+N_WORKERS   = 4
+ISO_PT      = Path("/app/models/iso_backbone.joblib")
+HYB_PT      = Path("/app/models/iso_hybrid.pth")
+
+# ===============================================================
+def run_iso_hybrid_pipeline() -> None:
+    # 0️⃣  canonical feature list ------------------------------------------------
     with open("data/meta/expected_features.json") as f:
-        expected_features = json.load(f)
-    logging.info(f"🔍 Using {len(expected_features)} features from expected_features.json")
+        FEATURES = json.load(f)
+    logging.info(f"🔍 Using {len(FEATURES)} features from expected_features.json")
 
-    # ----------------------------------------------------------------
-    # 1.  Build chunked dataset (same code path as GRU, seq_len = 1)
-    # ----------------------------------------------------------------
-    chunk_dataset = SequenceChunkedDataset(
-        chunk_dir       = CHUNKS_LABELED_PATH,
-        batch_size      = 5_000,
-        shuffle_files   = False,
-        label_column    = "label",
-        sequence_length = 1,
-        binary_labels   = True,
-        device          = "cuda" if torch.cuda.is_available() else "cpu"
+    # 1️⃣  build / refresh anomaly & negative banks -----------------------------
+    build_pos_bank(CHUNKS_LABELED_PATH, BANK_PT_POS,
+                   feature_cols=FEATURES, seq_len=1)
+    build_neg_bank(CHUNKS_LABELED_PATH, BANK_PT_NEG,
+                   feature_cols=FEATURES, seq_len=1)
+
+    # fast, balanced loader – rows are i.i.d. (sequence length = 1)
+    ds_full = FastBalancedDS(
+        chunk_dir    = CHUNKS_LABELED_PATH,
+        bank_pt      = BANK_PT_POS,
+        neg_bank_pt  = BANK_PT_NEG,
+        feature_cols = FEATURES,
+        seq_len      = 1,
+        pos_ratio    = POS_RATIO,
     )
 
-    # ----------------------------------------------------------------
-    # 2.  Train Isolation-Forest backbone on a sample of chunks
-    # ----------------------------------------------------------------
-    max_backbone_chunks = 200
-    X_train = []
-    for i, (features, _) in enumerate(chunk_dataset.full_loader()):
-        if i >= max_backbone_chunks:
-            break
-        X_train.append(features.squeeze(1).cpu().numpy())
-    X_train = np.concatenate(X_train, axis=0)
-    logging.info(f"🧠 Backbone fit on {len(X_train):,} samples from {i+1} chunks")
+    train_loader = torch.utils.data.DataLoader(
+        ds_full, batch_size=BATCH, shuffle=True,
+        num_workers=N_WORKERS, pin_memory=True
+    )
 
-    iso_backbone = IsoBackbone(contamination=0.05, n_estimators=100)
-    iso_backbone.fit(X_train)
-    os.makedirs("/app/models", exist_ok=True)
-    iso_backbone.save("/app/models/iso_backbone.joblib")
-    logging.info("✅ Saved iso_backbone.joblib")
+    eval_loader = torch.utils.data.DataLoader(
+        ds_full, batch_size=BATCH, shuffle=False,
+        num_workers=N_WORKERS, pin_memory=True
+    )
 
-    # ----------------------------------------------------------------
-    # 3.  Fine-tune IsoHybrid (frozen backbone  + trainable head)
-    # ----------------------------------------------------------------
+    # 2️⃣  Isolation-Forest backbone (fit once, smart-resume) -------------------
+    if ISO_PT.exists():
+        logging.info("ℹ️  iso_backbone.joblib found – loading.")
+        iso_backbone = IsoBackbone.load(str(ISO_PT))
+    else:
+        logging.info("🚀  Fitting Isolation-Forest backbone …")
+        # sample up to ~1 M rows (200 * 5 000) for speed
+        X_train, max_chunks = [], 200
+        for i, (xb, _) in enumerate(train_loader):
+            X_train.append(xb.squeeze(1).cpu().numpy())
+            if i + 1 >= max_chunks:
+                break
+        X_train = np.concatenate(X_train, axis=0)
+        logging.info(f"🧠  Backbone fit on {len(X_train):,} samples")
+        iso_backbone = IsoBackbone(contamination=0.05, n_estimators=100)
+        iso_backbone.fit(X_train)
+        iso_backbone.save(str(ISO_PT))
+        logging.info("✅  Saved iso_backbone.joblib")
+
+    # 3️⃣  Hybrid fine-tune ------------------------------------------------------
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model  = IsoHybrid(IsoBackbone.load("/app/models/iso_backbone.joblib"),
-                       freeze_bottleneck=False).to(device)
+    model  = IsoHybrid(iso_backbone, freeze_bottleneck=False).to(device)
+
+    if HYB_PT.exists():
+        logging.info("ℹ️  iso_hybrid.pth found – reloading weights.")
+        model.load_state_dict(torch.load(str(HYB_PT), map_location=device))
 
     optim = torch.optim.Adam(model.parameters(), lr=1e-3)
-    criterion = torch.nn.BCEWithLogitsLoss()
-
-    epochs = 3
-    for ep in range(epochs):
+    EPOCHS = 3
+    for ep in range(EPOCHS):
         model.train()
-        running_loss = 0.0
-        for xb_t, yb_t in chunk_dataset.train_loader():
-            features_np = xb_t.squeeze(1).cpu().numpy()  # (N,1,F) → (N,F) numpy
-            yb_t = yb_t.float()
-            if yb_t.dim() == 1:           # [N]           -> [N,1]
-                yb_t = yb_t.unsqueeze(1)
-            elif yb_t.dim() > 2:          # [N,1,1] etc.  -> [N,1]
-                yb_t = yb_t.view(-1, 1)
-            yb_t = yb_t.to(device)
+        loss_sum = 0.0
+        for xb, yb in train_loader:
+            feats_np = xb.squeeze(1).cpu().numpy()           # (N,F)
+            yb = yb.float().view(-1, 1).to(device)           # (N,1)
+
             optim.zero_grad()
-            logits = model(features_np)
-            loss = criterion(logits, yb_t)
+            logits = model(feats_np)
+            loss   = focal_loss(logits, yb)
             loss.backward()
             optim.step()
-            running_loss += loss.item()
+            loss_sum += loss.item()
 
-        logging.info(f"[Epoch {ep+1}/{epochs}] training loss = {running_loss:.6f}")
+        logging.info(f"[Epoch {ep+1}/{EPOCHS}] loss = {loss_sum:.6f}")
 
-    torch.save(model.state_dict(), "/app/models/iso_hybrid.pth")
-    logging.info("✅ Saved iso_hybrid.pth")
+    torch.save(model.state_dict(), str(HYB_PT))
+    logging.info("✅  Saved iso_hybrid.pth")
 
-    # ----------------------------------------------------------------
-    # 4.  Evaluate hybrid on full labelled stream
-    # ----------------------------------------------------------------
-    logging.info("🧪 Starting evaluation over full dataset…")
+    # 4️⃣  Evaluation (row-wise) -----------------------------------------------
     model.eval()
     tp = fp = fn = 0
     with torch.no_grad():
-        for idx, (features_t, labels_t) in enumerate(chunk_dataset.full_loader(), 1):
-            features_np = features_t.squeeze(1).cpu().numpy()
-            logits = model(features_np)
-
-            preds  = (torch.sigmoid(logits) > 0.5).int().cpu().numpy().ravel()
-            labels = labels_t.squeeze().cpu().numpy().astype(int)
+        for xb, yb in eval_loader:
+            feats_np = xb.squeeze(1).cpu().numpy()
+            logits   = model(feats_np)
+            preds    = (torch.sigmoid(logits) > 0.5).int().cpu().numpy().ravel()
+            labels   = yb.int().cpu().numpy().ravel()
 
             tp += np.logical_and(preds == 1, labels == 1).sum()
             fp += np.logical_and(preds == 1, labels == 0).sum()
             fn += np.logical_and(preds == 0, labels == 1).sum()
 
-            if idx % 100 == 0:
-                logging.info(f"📥 Evaluated {idx} chunks…")
+    prec = tp / (tp + fp + 1e-8)
+    rec  = tp / (tp + fn + 1e-8)
+    f1   = 2 * prec * rec / (prec + rec + 1e-8)
+    logging.info(f"📊  Hybrid metrics → P={prec:.4f} | R={rec:.4f} | F1={f1:.4f}")
+    logging.info("🎯  IsoHybrid pipeline finished.")
 
-    precision = tp / (tp + fp + 1e-8)
-    recall    = tp / (tp + fn + 1e-8)
-    f1        = 2 * precision * recall / (precision + recall + 1e-8)
-
-    logging.info(f"📊 Hybrid metrics → P={precision:.4f}  R={recall:.4f}  F1={f1:.4f}")
-    logging.info("🎯 IsoHybrid pipeline completed")
-
-
-# --------------------------------------------------------------------
+# -------------------------------------------------------------------
 if __name__ == "__main__":
     run_iso_hybrid_pipeline()

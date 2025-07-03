@@ -18,14 +18,19 @@ class IsoHybrid(nn.Module):
 
         # ➋ interface: 1-D score  →  8-D feature vector
         self.bottleneck = nn.Linear(1, 8)
-        if freeze_bottleneck:
-            for p in self.bottleneck.parameters():
-                p.requires_grad_(False)
+         # ➌ tiny “booster” (+ residual) – mirrors GRU/LSTM
+        self.post = nn.Sequential(
+            nn.LayerNorm(8),
+            nn.ReLU(),
+            nn.Linear(8, 8)
+        )
+        self.dropout = nn.Dropout(0.2)
 
-        # ➌ small MLP head
+        # ➍ small MLP head
         self.head = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(8, 16), nn.ReLU(),
+            nn.Linear(8, 16),
+            nn.ReLU(),
             nn.Linear(16, 1)          # logit
         )
 
@@ -39,5 +44,16 @@ class IsoHybrid(nn.Module):
         device = self.bottleneck.weight.device
         score_tensor = torch.as_tensor(score, dtype=torch.float32, device=device)\
                            .unsqueeze(1)                 # (N,) → (N,1)
-        feats8 = self.bottleneck(score_tensor)
-        return self.head(feats8)                         # logits
+        feats8 = self.bottleneck(score_tensor)           # (N,8)
+        feats8 = feats8 + self.post(feats8)              # ⚡ residual boost
+        return self.head(self.dropout(feats8))           # logits
+
+# ---------------------------------------------------------------------- #
+# Loss helper (shared with GRU/LSTM)
+# ---------------------------------------------------------------------- #
+def focal_loss(logits, targets, alpha: float = 1.0, gamma: float = 2.0):
+    from torch.nn.functional import binary_cross_entropy_with_logits as _bce
+    targets = targets.to(logits.device)
+    raw = _bce(logits, targets, reduction="none")
+    p_t = torch.exp(-raw)
+    return (alpha * (1 - p_t) ** gamma * raw).mean()
