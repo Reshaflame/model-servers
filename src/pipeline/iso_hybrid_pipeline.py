@@ -144,5 +144,15 @@ def run_iso_hybrid_pipeline() -> None:
     logging.info("🎯  IsoHybrid pipeline finished.")
 
 # -------------------------------------------------------------------
+# 🔧 Back-compat shim for CLI (src/main.py)
+# -------------------------------------------------------------------
+def run_iso_hybrid(preprocess: bool = False):
+    """Alias expected by src/main.py; 'preprocess' flag is ignored."""
+    if preprocess:
+        logging.warning("🚧 'preprocess' flag ignored — banks handle it.")
+    run_iso_hybrid_pipeline()
+
+
+# -------------------------------------------------------------------
 if __name__ == "__main__":
     run_iso_hybrid_pipeline()
