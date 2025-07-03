@@ -4,14 +4,23 @@
 import os, json, torch, pandas as pd
 from glob import glob as _glob
 from pathlib import Path
-from utils.SequenceChunkedDataset import SequenceChunkedDataset
+from utils.fast_balanced_dataset import FastBalancedDS
+from utils.build_anomaly_bank    import build_if_needed as build_pos_bank
+from utils.build_negative_bank   import build_if_needed as build_neg_bank
 from utils.constants import CHUNKS_LABELED_PATH
 from utils.tuning      import manual_gru_search          # reuse helper
 from utils.evaluator   import evaluate_and_export, quick_f1
 from utils.model_exporter import export_model
 from models.lstm_hybrid   import train_lstm, train_hybrid, LSTMRNNBackbone
 
-# ---------- constants ------------------------------------------
+# -------- constants ---------------------------------------------
+BANK_PT_POS = "/workspace/model-servers/data/anomaly_bank.pt"
+BANK_PT_NEG = "/workspace/model-servers/data/negative_bank.pt"
+POS_RATIO   = 0.30          # 30 % positives per mini-batch
+BATCH_SIZE  = 64
+NUM_WORKERS = 4
+SEQ_LEN     = 10            # keep the 10-timestep window you used before
+
 BACKBONE_PT = Path("/app/models/lstm_rnn_trained_model.pth")
 HYBRID_PT   = Path("/app/models/lstm_hybrid.pth")
 
@@ -24,23 +33,37 @@ def run_pipeline() -> None:
 
     chunk_dir = CHUNKS_LABELED_PATH
 
-    # ---------- 1. dataset ---------------------------------------
-    dataset = SequenceChunkedDataset(
-        chunk_dir,
-        label_column    = "label",
-        feature_columns = FEATURE_LIST,      # ← NEW
-        batch_size      = 64,
-        shuffle_files   = True,
-        binary_labels   = True,
-        sequence_length = 10,
-        device          = device,
-        split_ratio     = 0.9
-    )
-    train_iter = dataset.train_loader
-    val_once   = dataset.val_loader
-    full_iter  = dataset.full_loader
+    # ---------- 1. build / load banks ----------------------------
+    build_pos_bank(chunk_dir, BANK_PT_POS,
+                   feature_cols=FEATURE_LIST, seq_len=SEQ_LEN)
+    build_neg_bank(chunk_dir, BANK_PT_NEG,
+                   feature_cols=FEATURE_LIST, seq_len=SEQ_LEN)
 
-    pos_tr  = sum((y == 1).sum().item() for _, y in train_iter())
+    # ---------- 2. dataset (balanced) ----------------------------
+    full_ds = FastBalancedDS(
+        chunk_dir   = chunk_dir,
+        bank_pt     = BANK_PT_POS,
+        neg_bank_pt = BANK_PT_NEG,
+        feature_cols= FEATURE_LIST,
+        seq_len     = SEQ_LEN,
+        pos_ratio   = POS_RATIO,
+    )
+
+    train_loader = lambda: torch.utils.data.DataLoader(
+        full_ds, batch_size=BATCH_SIZE,
+        shuffle=True, num_workers=NUM_WORKERS, pin_memory=True)
+
+    # one-shot validation tensor (same trick the GRU pipeline uses)
+    val_X, val_y = next(iter(torch.utils.data.DataLoader(
+        full_ds, batch_size=4000, shuffle=True)))
+    val_once = lambda: [(val_X, val_y)]
+
+    # full-set iterator for predictions
+    full_iter = lambda: torch.utils.data.DataLoader(
+        full_ds, batch_size=BATCH_SIZE,
+        shuffle=False, num_workers=NUM_WORKERS)
+
+    pos_tr  = sum((y == 1).sum().item() for _, y in train_loader())
     pos_val = sum((y == 1).sum().item() for _, y in val_once())
     print(f"🧮 train positives ≈ {pos_tr}")
     print(f"🧮   val positives ≈ {pos_val}")
@@ -83,7 +106,7 @@ def run_pipeline() -> None:
     def _train(cfg):
         best_f1, _ = train_lstm(
             cfg,
-            loaders=(train_iter, val_once),
+            loaders=(train_loader, val_once),
             input_size=input_size,
             tag=f"lstm_h{cfg['hidden_size']}_l{cfg['num_layers']}",
             resume=True,
@@ -98,7 +121,7 @@ def run_pipeline() -> None:
     tag = f"lstm_h{best['hidden_size']}_l{best['num_layers']}"
     best_f1, lstm_backbone = train_lstm(
         best,
-        loaders=(train_iter, val_once),
+        loaders=(train_loader, val_once),
         input_size=input_size,
         tag=tag,
         resume=False,
@@ -116,7 +139,7 @@ def run_pipeline() -> None:
     print("\n🚀  Starting hybrid fine-tune…")
     hybrid = train_hybrid(
         str(BACKBONE_PT),
-        loaders=(train_iter, val_once),
+        loaders=(train_loader, val_once),
         input_size=input_size,
         hidden_size=best["hidden_size"],
         num_layers=best["num_layers"],
