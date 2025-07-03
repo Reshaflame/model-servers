@@ -143,15 +143,6 @@ def run_iso_hybrid_pipeline() -> None:
     logging.info(f"📊  Hybrid metrics → P={prec:.4f} | R={rec:.4f} | F1={f1:.4f}")
     logging.info("🎯  IsoHybrid pipeline finished.")
 
-# -------------------------------------------------------------------
-# 🔧 Back-compat shim for CLI (src/main.py)
-# -------------------------------------------------------------------
-def run_iso_hybrid(preprocess: bool = False):
-    """Alias expected by src/main.py; 'preprocess' flag is ignored."""
-    if preprocess:
-        logging.warning("🚧 'preprocess' flag ignored — banks handle it.")
-    run_iso_hybrid_pipeline()
-
 
 # -------------------------------------------------------------------
 if __name__ == "__main__":
