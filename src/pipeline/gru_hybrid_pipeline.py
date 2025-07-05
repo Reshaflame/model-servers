@@ -119,7 +119,7 @@ def run_pipeline() -> None:
 
         # otherwise run only the hybrid stage with the existing backbone
         print("🚀  Existing backbone → running HYBRID stage only …")
-        best_cfg = {"hidden_size": 64, "num_layers": 1}  # same as dummy above
+        best_cfg = {"hidden_size": 64, "num_layers": 2} 
         hybrid = train_hybrid(
             str(FINAL_MODEL_PT),
             loaders      = (lambda: (), val_once),  # no further training of backbone

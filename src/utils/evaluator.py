@@ -47,7 +47,13 @@ def quick_f1(model, val_loader_fn, device, default_th=0.5):
 
 
 
-def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_truth=False):
+def evaluate_and_export(model,
+                        dataset,
+                        model_name,
+                        device="cpu",
+                        export_ground_truth=False,
+                        threshold=0.50,          # ← NEW (keeps old default)
+                        **kwargs):               # accepts future extras
     print(f"[DEBUG] 🧠 Running evaluate_and_export() from src/utils/evaluator.py for model: {model_name}")
     model.eval()
 
@@ -75,7 +81,7 @@ def evaluate_and_export(model, dataset, model_name, device="cpu", export_ground_
             outputs = model(batch_features)
             if isinstance(outputs, tuple):          # logits, hidden
                 outputs = outputs[0]
-            preds = (outputs > 0.5).float().cpu().numpy().flatten()
+            preds = (outputs > threshold).float().cpu().numpy().flatten()
             labels = batch_labels.cpu().numpy().flatten()
 
             # Save predictions per batch
