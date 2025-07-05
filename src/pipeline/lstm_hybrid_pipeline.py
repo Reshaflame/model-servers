@@ -122,7 +122,6 @@ def run_pipeline() -> None:
                 # backbone is already built & frozen
                 mdl = LSTMHybrid(backbone,
                                 hidden_size=h,
-                                num_layers=l,
                                 freeze_lstm=True,
                                 freeze_bottleneck=False)
                 return mdl
