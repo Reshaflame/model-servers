@@ -177,28 +177,71 @@ def run_pipeline() -> None:
     best_cfg = manual_gru_search(_train, grid)
     print("🏅 Best GRU config:", best_cfg)
 
-    # ---------- 5. final backbone training -----------------------
-    tag = f"gru_h{best_cfg['hidden_size']}_l{best_cfg['num_layers']}"
-    best_f1, backbone = train_gru(
-        best_cfg,
-        loaders        = (train_iter, val_once),
-        input_size     = input_size,
-        tag            = tag,
-        resume         = False,
-        eval_every_epoch=False,
-        n_bank_pos     = n_bank_pos,
-        pos_ratio      = POS_RATIO,
-    )
-    print(f"👍 Final val F1 = {best_f1:.4f}")
+    # ---------- 5. pick BEST checkpoint & (optionally) resume ----
+    print("\n🔎  Scanning checkpoints for best F1 …")
 
+    def _arch_from_fname(fn: str) -> tuple[int, int]:
+        # e.g.  gru_h64_l2.pt  ->  (64, 2)
+        base = os.path.basename(fn)
+        h = int(base.split("_h")[1].split("_")[0])
+        l = int(base.split("_l")[1].split(".")[0])
+        return h, l
+
+    ckpts = sorted(glob("/workspace/checkpoints/gru_h*.pt"))
+    if not ckpts:
+        raise RuntimeError("No checkpoints found – did grid-search run?")
+
+    best_f1, best_path, best_h, best_l = -1., None, None, None
+    for ck in ckpts:
+        h, l = _arch_from_fname(ck)
+        model = GRUAnomalyDetector(input_size, hidden_size=h, num_layers=l)
+        sd    = torch.load(ck, map_location="cpu")["model"]
+        model.load_state_dict(sd, strict=False)
+        f1    = quick_f1(model, val_once, device="cpu")["F1"]
+        print(f"{os.path.basename(ck):<20}  F1={f1:.4f}")
+        if f1 > best_f1:
+            best_f1, best_path, best_h, best_l = f1, ck, h, l
+
+    print(f"\n🏅  BEST checkpoint → {os.path.basename(best_path)}  (F1={best_f1:.4f})")
+
+    # ------- optionally resume it for a few extra epochs ----------
+    EXTRA_EPOCHS = 3            # set to 0 if you don’t want any resume
+
+    backbone = GRUAnomalyDetector(input_size, best_h, best_l)
+    state    = torch.load(best_path, map_location="cpu")
+    backbone.load_state_dict(state["model"])
+    start_ep = state["epoch"]
+
+    if EXTRA_EPOCHS > 0:
+        cfg_resume = {
+            "lr": 5e-4,
+            "hidden_size": best_h,
+            "num_layers":  best_l,
+            "epochs":      start_ep + EXTRA_EPOCHS,
+            "early_stop_patience": EXTRA_EPOCHS + 1,   # disable stop
+        }
+        print(f"🔄  Resuming for {EXTRA_EPOCHS} extra epoch(s)…")
+        _, backbone = train_gru(
+            cfg_resume,
+            loaders        = (train_iter, val_once),
+            input_size     = input_size,
+            tag            = f"best_gru_h{best_h}_l{best_l}",
+            resume         = True,          # continues from checkpoint
+            eval_every_epoch=False,
+            n_bank_pos     = n_bank_pos,
+            pos_ratio      = POS_RATIO,
+        )
+
+    # ----- export & evaluate the final backbone just like before ----
     export_model(backbone, "/app/models/gru_trained_model.pth")
     evaluate_and_export(
         backbone, [(val_X, val_y)],
-        model_name="gru",
+        model_name="gru_final",
         device=device,
         export_ground_truth=True,
         thr=0.25,
     )
+
 
     # ---------- 6. hybrid fine-tune ------------------------------
     print("\n🚀  Starting hybrid fine-tune…")
