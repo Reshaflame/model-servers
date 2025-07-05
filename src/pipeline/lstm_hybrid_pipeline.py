@@ -1,7 +1,7 @@
 # ---------------------------------------------------------------
 #  LSTM+RNN + MLP hybrid training pipeline (streaming dataset)
 # ---------------------------------------------------------------
-import os, json, torch, pandas as pd
+import os, json, torch, re, pandas as pd
 from glob import glob as _glob
 from pathlib import Path
 from utils.fast_balanced_dataset import FastBalancedDS
@@ -26,6 +26,15 @@ SEQ_LEN     = 10            # keep the 10-timestep window you used before
 
 BACKBONE_PT = Path("/app/models/lstm_rnn_trained_model.pth")
 HYBRID_PT   = Path("/app/models/lstm_hybrid.pth")
+
+def _arch_from_fname(fname: str) -> tuple[int, int]:
+    """
+    'lstm_h128_l2.pt' ➜ (128, 2)
+    """
+    m = re.search(r"_h(\d+)_l(\d+)", fname)
+    if m:
+        return int(m.group(1)), int(m.group(2))
+    raise ValueError(f"Cannot parse hidden/layers from {fname}")
 
 # --- helper: load a model .pth and print F1/P/R on the current val set
 def _print_metrics(pt_file: Path, build_model_fn, val_once, name: str):
@@ -86,7 +95,10 @@ def run_pipeline() -> None:
     if BACKBONE_PT.exists():
         print("ℹ️  Found backbone – skipping retrain")
         
-        build_backbone = lambda: LSTMRNNBackbone(input_size)
+        h, l = _arch_from_fname(BACKBONE_PT.name)
+        build_backbone = lambda: LSTMRNNBackbone(input_size,
+                                                hidden_size=h,
+                                                num_layers=l)
         backbone = _print_metrics(BACKBONE_PT, build_backbone,
                                 val_once, name="Backbone")
 
