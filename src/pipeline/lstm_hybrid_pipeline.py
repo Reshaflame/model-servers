@@ -11,7 +11,7 @@ from utils.constants import CHUNKS_LABELED_PATH
 from utils.tuning      import manual_gru_search          # reuse helper
 from utils.evaluator   import evaluate_and_export, quick_f1
 from utils.model_exporter import export_model
-from models.lstm_hybrid   import train_lstm, train_hybrid, LSTMRNNBackbone
+from models.lstm_hybrid   import train_lstm, train_hybrid, LSTMRNNBackbone, LSTMHybrid
 
 # -------- constants ---------------------------------------------
 BANK_DIR     = "/workspace/model-servers/data/lstm_seq10"
@@ -114,14 +114,24 @@ def run_pipeline() -> None:
 
         # ---------- check hybrid -------------------------------------
         if HYBRID_PT.exists():
-            def _build_hybrid_skeleton():
-                return train_hybrid.make_hybrid_skeleton(backbone,
-                                                        hidden_size=h,
-                                                        num_layers=l)
+            def _build_hybrid_skeleton() -> torch.nn.Module:
+                """
+                Construct **exactly** the same hybrid architecture that
+                train_hybrid() produces, but without running any training.
+                """
+                # backbone is already built & frozen
+                mdl = LSTMHybrid(backbone,
+                                hidden_size=h,
+                                num_layers=l,
+                                freeze_lstm=True,
+                                freeze_bottleneck=False)
+                return mdl
+
             _print_metrics(HYBRID_PT, _build_hybrid_skeleton,
                         val_once, name="Hybrid")
             print("ℹ️  Both models already present – pipeline finished.")
             return
+
 
         # ---------- run hybrid only ----------------------------------
         print("🚀  Backbone ready – running hybrid stage only…")
