@@ -88,7 +88,45 @@ def run_pipeline() -> None:
         """One-shot generator expected by train_gru()."""
         yield val_X, val_y
 
-     # ──────────────────────────────────────────────────────────────
+    # ────────────────────────────────────────────────────────────
+    #  A)   FIND BEST EXISTING CHECKPOINT (if any)
+    # ────────────────────────────────────────────────────────────
+    ckpts = sorted(glob("/workspace/checkpoints/gru_h*.pt"))
+    best_ck, best_f1 = None, -1.
+    for ck in ckpts:
+        h = int( ck.split("_h")[1].split("_")[0] )
+        l = int( ck.split("_l")[1].split(".")[0] )
+        dummy = GRUAnomalyDetector(input_size, hidden_size=h, num_layers=l)
+        dummy.load_state_dict(torch.load(ck, map_location="cpu")["model"])
+        f1 = quick_f1(dummy, val_once, device="cpu")["F1"]
+        print(f"▶ {os.path.basename(ck):<18}  F1={f1:.4f}")
+        if f1 > best_f1:
+            best_f1, best_ck, best_h, best_l = f1, ck, h, l
+
+    if best_ck is not None:
+        print(f"🏅 BEST existing ckpt → {os.path.basename(best_ck)}  (F1={best_f1:.4f})")
+        # fine-tune for a few *extra* epochs if you like
+        EXTRA_EPOCHS = 3
+        backbone = GRUAnomalyDetector(input_size, best_h, best_l)
+        state = torch.load(best_ck, map_location="cpu")
+        backbone.load_state_dict(state["model"])
+        if EXTRA_EPOCHS:
+            _, backbone = train_gru(
+                {"lr":1e-3, "hidden_size":best_h, "num_layers":best_l,
+                    "epochs":EXTRA_EPOCHS, "early_stop_patience":2},
+                loaders        = (train_iter, val_once),
+                input_size     = input_size,
+                tag            = "best_ckpt_finetune",
+                resume         = False,           # fresh optim
+                eval_every_epoch=False,
+                n_bank_pos     = n_bank_pos,
+                pos_ratio      = POS_RATIO,
+            )
+        export_model(backbone, "/app/models/gru_trained_model.pth")
+        print("✅  Exported best backbone – pipeline finished.")
+        return                    # ← grid-search *skipped*
+
+    # ──────────────────────────────────────────────────────────────
     #  ## smart-resume guard – insert HERE #########################
     # ──────────────────────────────────────────────────────────────
     if FINAL_MODEL_PT.exists():
