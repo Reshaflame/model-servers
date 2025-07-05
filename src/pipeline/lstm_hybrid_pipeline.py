@@ -27,14 +27,26 @@ SEQ_LEN     = 10            # keep the 10-timestep window you used before
 BACKBONE_PT = Path("/app/models/lstm_rnn_trained_model.pth")
 HYBRID_PT   = Path("/app/models/lstm_hybrid.pth")
 
-def _arch_from_fname(fname: str) -> tuple[int, int]:
+# ---------- helper -------------------------------------------------
+def load_backbone_from_ckpt(pt: Path, input_size: int) -> tuple[LSTMRNNBackbone, int, int]:
     """
-    'lstm_h128_l2.pt' ➜ (128, 2)
+    Inspect the .pth → return (model, hidden_size, num_layers)
     """
-    m = re.search(r"_h(\d+)_l(\d+)", fname)
-    if m:
-        return int(m.group(1)), int(m.group(2))
-    raise ValueError(f"Cannot parse hidden/layers from {fname}")
+    sd = torch.load(pt, map_location="cpu")
+
+    # LSTM keys look like   'lstm.weight_ih_l0', 'lstm.weight_ih_l1', …
+    lstm_keys = [k for k in sd if k.startswith("lstm.weight_ih_l")]
+    num_layers = len(lstm_keys)
+
+    # weight_ih_l0 shape is (4*hidden, input_size)
+    hidden_size = sd["lstm.weight_ih_l0"].shape[0] // 4
+
+    mdl = LSTMRNNBackbone(input_size,
+                          hidden_size=hidden_size,
+                          num_layers=num_layers)
+    mdl.load_state_dict(sd)          # strict=True – all keys match
+    mdl.eval()
+    return mdl, hidden_size, num_layers
 
 # --- helper: load a model .pth and print F1/P/R on the current val set
 def _print_metrics(pt_file: Path, build_model_fn, val_once, name: str):
@@ -94,40 +106,42 @@ def run_pipeline() -> None:
     # ---------- 2. smart-resume guard --------------------------------
     if BACKBONE_PT.exists():
         print("ℹ️  Found backbone – skipping retrain")
-        
-        h, l = _arch_from_fname(BACKBONE_PT.name)
-        build_backbone = lambda: LSTMRNNBackbone(input_size,
-                                                hidden_size=h,
-                                                num_layers=l)
-        backbone = _print_metrics(BACKBONE_PT, build_backbone,
-                                val_once, name="Backbone")
 
-        # --- if hybrid exists, print its metric too and exit ----------
+        backbone, h, l = load_backbone_from_ckpt(BACKBONE_PT, input_size)
+        mets = quick_f1(backbone, val_once, device="cpu")
+        print(f"✅  Backbone  F1={mets['F1']:.4f}  "
+            f"P={mets['Precision']:.3f}  R={mets['Recall']:.3f}")
+
+        # ---------- check hybrid -------------------------------------
         if HYBRID_PT.exists():
-            build_hyb = lambda: train_hybrid.make_hybrid_skeleton(      # tiny util inside models.lstm_hybrid
-                build_backbone(), hidden_size=64, num_layers=1)
-            _print_metrics(HYBRID_PT, build_hyb,
+            def _build_hybrid_skeleton():
+                return train_hybrid.make_hybrid_skeleton(backbone,
+                                                        hidden_size=h,
+                                                        num_layers=l)
+            _print_metrics(HYBRID_PT, _build_hybrid_skeleton,
                         val_once, name="Hybrid")
             print("ℹ️  Both models already present – pipeline finished.")
             return
 
-        # --- else: run only hybrid stage on the frozen backbone -------
+        # ---------- run hybrid only ----------------------------------
         print("🚀  Backbone ready – running hybrid stage only…")
         hybrid = train_hybrid(
             str(BACKBONE_PT),
-            loaders      = (lambda: (), val_once),   # ← no further backbone training
+            loaders      = (lambda: (), val_once),   # no further backbone training
             input_size   = input_size,
-            hidden_size  = 64,
-            num_layers   = 1,
+            hidden_size  = h,
+            num_layers   = l,
             epochs       = 3,
             lr           = 1e-3,
         )
         evaluate_and_export(
             hybrid, full_iter(), model_name="lstm_hybrid", device="cpu"
         )
-        _print_metrics(HYBRID_PT, build_hyb, val_once, name="Hybrid")
+        _print_metrics(HYBRID_PT, _build_hybrid_skeleton,
+                    val_once, name="Hybrid")
         return
     # -----------------------------------------------------------------
+
 
 
     # ---------- 3. grid search -----------------------------------
