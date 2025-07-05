@@ -27,6 +27,17 @@ SEQ_LEN     = 10            # keep the 10-timestep window you used before
 BACKBONE_PT = Path("/app/models/lstm_rnn_trained_model.pth")
 HYBRID_PT   = Path("/app/models/lstm_hybrid.pth")
 
+# --- helper: load a model .pth and print F1/P/R on the current val set
+def _print_metrics(pt_file: Path, build_model_fn, val_once, name: str):
+    mdl = build_model_fn().to("cpu")
+    mdl.load_state_dict(torch.load(pt_file, map_location="cpu"))
+    mdl.eval()
+    mets = quick_f1(mdl, val_once, device="cpu")
+    print(f"✅  {name:9s} F1={mets['F1']:.4f}  "
+          f"P={mets['Precision']:.3f}  R={mets['Recall']:.3f}")
+    return mdl            # you may want it later
+
+
 def run_pipeline() -> None:
     # ---------- 0. schema & meta ---------------------------------
     with open("data/meta/expected_features.json") as f:
@@ -71,22 +82,28 @@ def run_pipeline() -> None:
     print(f"🧮 train positives ≈ {pos_tr}")
     print(f"🧮   val positives ≈ {pos_val}")
 
-    # ---------- 2. smart-resume guard ----------------------------
+    # ---------- 2. smart-resume guard --------------------------------
     if BACKBONE_PT.exists():
-        print("ℹ️  Found existing backbone → skipping retrain")
-        backbone = LSTMRNNBackbone(input_size).to("cpu")
-        backbone.load_state_dict(torch.load(BACKBONE_PT, map_location="cpu"))
-        mets = quick_f1(backbone, val_once, device="cpu")
-        print(f"✅  F1={mets['F1']:.4f} ‖ P={mets['Precision']:.3f} R={mets['Recall']:.3f}")
+        print("ℹ️  Found backbone – skipping retrain")
+        
+        build_backbone = lambda: LSTMRNNBackbone(input_size)
+        backbone = _print_metrics(BACKBONE_PT, build_backbone,
+                                val_once, name="Backbone")
 
+        # --- if hybrid exists, print its metric too and exit ----------
         if HYBRID_PT.exists():
-            print("ℹ️  Hybrid already present → pipeline finished.")
+            build_hyb = lambda: train_hybrid.make_hybrid_skeleton(      # tiny util inside models.lstm_hybrid
+                build_backbone(), hidden_size=64, num_layers=1)
+            _print_metrics(HYBRID_PT, build_hyb,
+                        val_once, name="Hybrid")
+            print("ℹ️  Both models already present – pipeline finished.")
             return
 
-        print("🚀  Existing backbone → running hybrid stage only …")
+        # --- else: run only hybrid stage on the frozen backbone -------
+        print("🚀  Backbone ready – running hybrid stage only…")
         hybrid = train_hybrid(
             str(BACKBONE_PT),
-            loaders      = (lambda: (), val_once),
+            loaders      = (lambda: (), val_once),   # ← no further backbone training
             input_size   = input_size,
             hidden_size  = 64,
             num_layers   = 1,
@@ -94,10 +111,12 @@ def run_pipeline() -> None:
             lr           = 1e-3,
         )
         evaluate_and_export(
-            hybrid, full_iter(), model_name="lstm_hybrid_recheck", device="cpu"
+            hybrid, full_iter(), model_name="lstm_hybrid", device="cpu"
         )
+        _print_metrics(HYBRID_PT, build_hyb, val_once, name="Hybrid")
         return
-    # -------------------------------------------------------------
+    # -----------------------------------------------------------------
+
 
     # ---------- 3. grid search -----------------------------------
     grid = [
@@ -113,7 +132,7 @@ def run_pipeline() -> None:
             input_size=input_size,
             tag=f"lstm_h{cfg['hidden_size']}_l{cfg['num_layers']}",
             resume=True,
-            eval_every=True,
+            eval_every_epoch=True,
         )
         return best_f1
 
@@ -128,7 +147,7 @@ def run_pipeline() -> None:
         input_size=input_size,
         tag=tag,
         resume=False,
-        eval_every=False,
+        eval_every_epoch=False,
     )
     print(f"👍 Final backbone F1 = {best_f1:.4f}")
 
