@@ -94,9 +94,8 @@ def run_pipeline() -> None:
     if FINAL_MODEL_PT.exists():
         print("ℹ️  Found existing /app/models/gru_trained_model.pth → skipping retraining")
 
-        # create a dummy backbone with **default** architecture.
-        # (adjust hidden_size / num_layers if you usually train other sizes)
-        backbone = GRUAnomalyDetector(input_size, hidden_size=64, num_layers=1)
+        # dummy backbone must match the saved checkpoint config
+        backbone = GRUAnomalyDetector(input_size, hidden_size=64, num_layers=2)
         backbone.load_state_dict(torch.load(FINAL_MODEL_PT, map_location="cpu"))
         backbone.eval()
 
@@ -105,7 +104,13 @@ def run_pipeline() -> None:
         print(f"✅  F1={mets['F1']:.4f} ‖ P={mets['Precision']:.3f} R={mets['Recall']:.3f}")
 
         # regenerate preds so they match the new val set
-        evaluate_and_export(backbone, [(val_X, val_y)], "gru_recheck", "cpu")
+        evaluate_and_export(
+            backbone, [(val_X, val_y)],
+            model_name="gru_recheck",
+            device="cpu",
+            export_ground_truth=True,
+            thr=0.25,                      # tuned threshold
+        )
 
         # optional: also skip hybrid fine-tune if it already exists
         if FINAL_HYB_PT.exists():
@@ -124,7 +129,13 @@ def run_pipeline() -> None:
             epochs       = 3,
             lr           = 1e-3,
         )
-        evaluate_and_export(hybrid, [(val_X, val_y)], "gru_hybrid_recheck", "cpu")
+        evaluate_and_export(
+            hybrid, [(val_X, val_y)],
+            model_name="gru_hybrid_recheck",
+            device="cpu",
+            export_ground_truth=True,
+            thr=0.25,
+        )
         return          # ← finished, no grid-search / training
     # ──────────────────────────────────────────────────────────────
     #  ## end smart-resume guard ###################################
@@ -181,7 +192,13 @@ def run_pipeline() -> None:
     print(f"👍 Final val F1 = {best_f1:.4f}")
 
     export_model(backbone, "/app/models/gru_trained_model.pth")
-    evaluate_and_export(backbone, [(val_X, val_y)], "gru", device)
+    evaluate_and_export(
+        backbone, [(val_X, val_y)],
+        model_name="gru",
+        device=device,
+        export_ground_truth=True,
+        thr=0.25,
+    )
 
     # ---------- 6. hybrid fine-tune ------------------------------
     print("\n🚀  Starting hybrid fine-tune…")
@@ -194,7 +211,13 @@ def run_pipeline() -> None:
         epochs       = 3,
         lr           = 1e-3,
     )
-    evaluate_and_export(hybrid, [(val_X, val_y)], "gru_hybrid", device)
+    evaluate_and_export(
+        hybrid, [(val_X, val_y)],
+        model_name="gru_hybrid",
+        device=device,
+        export_ground_truth=True,
+        thr=0.25,
+    )
     LOGGER = logging.getLogger("PIPELINE")
 
     pred_dir  = "/app/models/preds/gru_hybrid_batches"
