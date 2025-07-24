@@ -189,6 +189,7 @@ data/redteam.txt.gz
 # 2️⃣  HEAVY GENERATED TREES
 data/chunks_labeled/*
 data/chunks_unlabeled/*
+data/chunks_labeled_phase2/slim_train/*
 data/labeled_data/chunks/*
 data/shared_chunks/*
 data/archives/*

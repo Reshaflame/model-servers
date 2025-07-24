@@ -1,14 +1,13 @@
 # ---------------------------------------------------------------
 #  LSTM+RNN + MLP hybrid training pipeline (streaming dataset)
 # ---------------------------------------------------------------
-import os, json, torch, re, pandas as pd
-from glob import glob as _glob
+import os, json, torch
 from pathlib import Path
 from utils.fast_balanced_dataset import FastBalancedDS
 from utils.build_anomaly_bank    import build_if_needed as build_pos_bank
 from utils.build_negative_bank   import build_if_needed as build_neg_bank
 from utils.constants import CHUNKS_LABELED_PATH
-from utils.tuning      import manual_gru_search          # reuse helper
+from utils.tuning      import manual_gru_search
 from utils.evaluator   import evaluate_and_export, quick_f1
 from utils.model_exporter import export_model
 from models.lstm_hybrid   import train_lstm, train_hybrid, LSTMRNNBackbone, LSTMHybrid
@@ -22,7 +21,7 @@ BANK_PT_NEG  = f"{BANK_DIR}/negative_bank.pt"
 POS_RATIO   = 0.30          # 30 % positives per mini-batch
 BATCH_SIZE  = 64
 NUM_WORKERS = 4
-SEQ_LEN     = 10            # keep the 10-timestep window you used before
+SEQ_LEN     = 10
 
 BACKBONE_PT = Path("/app/models/lstm_rnn_trained_model.pth")
 HYBRID_PT   = Path("/app/models/lstm_hybrid.pth")
@@ -34,7 +33,6 @@ def load_backbone_from_ckpt(pt: Path, input_size: int) -> tuple[LSTMRNNBackbone,
     """
     sd = torch.load(pt, map_location="cpu")
 
-    # LSTM keys look like   'lstm.weight_ih_l0', 'lstm.weight_ih_l1', …
     lstm_keys = [k for k in sd if k.startswith("lstm.weight_ih_l")]
     num_layers = len(lstm_keys)
 
@@ -44,7 +42,7 @@ def load_backbone_from_ckpt(pt: Path, input_size: int) -> tuple[LSTMRNNBackbone,
     mdl = LSTMRNNBackbone(input_size,
                           hidden_size=hidden_size,
                           num_layers=num_layers)
-    mdl.load_state_dict(sd)          # strict=True – all keys match
+    mdl.load_state_dict(sd)
     mdl.eval()
     return mdl, hidden_size, num_layers
 
@@ -56,13 +54,13 @@ def _print_metrics(pt_file: Path, build_model_fn, val_once, name: str):
     mets = quick_f1(mdl, val_once, device="cpu")
     print(f"✅  {name:9s} F1={mets['F1']:.4f}  "
           f"P={mets['Precision']:.3f}  R={mets['Recall']:.3f}")
-    return mdl            # you may want it later
+    return mdl
 
 
 def run_pipeline() -> None:
     # ---------- 0. schema & meta ---------------------------------
     with open("data/meta/expected_features.json") as f:
-        FEATURE_LIST = json.load(f)          # 61 columns
+        FEATURE_LIST = json.load(f)
     input_size = len(FEATURE_LIST)
     device     = "cuda" if torch.cuda.is_available() else "cpu"
 
@@ -88,7 +86,7 @@ def run_pipeline() -> None:
         full_ds, batch_size=BATCH_SIZE,
         shuffle=True, num_workers=NUM_WORKERS, pin_memory=True)
 
-    # one-shot validation tensor (same trick the GRU pipeline uses)
+    # one-shot validation tensor
     val_X, val_y = next(iter(torch.utils.data.DataLoader(
         full_ds, batch_size=4000, shuffle=True)))
     val_once = lambda: [(val_X, val_y)]
